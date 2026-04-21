@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS Student(
 
 );
 
-CREATE TABLE IF NOT EXISTS Annotation(
-	annotate_id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS Dataset(
+	dataset_id INT AUTO_INCREMENT PRIMARY KEY,
     rule VARCHAR(255),
     positive_count INT,
     negative_count INT
