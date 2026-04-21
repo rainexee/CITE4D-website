@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MessageSquare, EyeOff, ThumbsUp, Filter, Star, ChevronRight, Mail } from 'lucide-react';
+import { MessageSquare, EyeOff, ThumbsUp, Filter, Star, ChevronRight, Mail, Database } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 
 function App() {
@@ -13,17 +13,17 @@ function App() {
           Accept: 'application/json'
         }
       })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.email && data.email.endsWith("@dlsu.edu.ph")) {
-          alert(`Success! Logged in as: ${data.email}`);
-          setShowLogin(false);
-          // Here is where you'll eventually send data to your MySQL API!
-        } else {
-          alert(`Access Denied! Your email (${data.email}) is not a DLSU account.`);
-        }
-      })
-      .catch((err) => console.error("Failed to fetch user info:", err));
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.email && data.email.endsWith("@dlsu.edu.ph")) {
+            alert(`Success! Logged in as: ${data.email}`);
+            setShowLogin(false);
+            // Here is where you'll eventually send data to your MySQL API!
+          } else {
+            alert(`Access Denied! Your email (${data.email}) is not a DLSU account.`);
+          }
+        })
+        .catch((err) => console.error("Failed to fetch user info:", err));
     },
     onError: (error) => console.log('Login Failed:', error)
   });
@@ -33,11 +33,8 @@ function App() {
       {/* Navbar section */}
       <nav className="navbar container">
         <a href="/" className="logo">
-          {/* Simple eye icon roughly matching ArcherEye */}
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
+          {/* Database icon for Datanaut repository */}
+          <Database size={24} strokeWidth={2} />
           Datanaut
         </a>
         <div className="nav-links">
@@ -57,7 +54,7 @@ function App() {
           </div>
           <h1>Dataset viewer.</h1>
           <p>
-            Dataset viewer is an unofficial platform exclusive for De La Salle University students to create and discover reviews about their professors without gatekeeping.
+            Dataset viewer is an unofficial platform exclusive for De La Salle University students to discover and annotate datasets.
           </p>
           <div className="hero-actions">
             <a href="#" className="btn btn-primary btn-lg">
