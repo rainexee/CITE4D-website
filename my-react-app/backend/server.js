@@ -23,7 +23,10 @@ app.use(express.json({
 }));
 
 // Serve static files from the public directory
-app.use(express.static(path.join(__dirname, 'my-react-app/public')));
+app.use(express.static(path.join(__dirname, '../public')));
+
+
+
 
 const db = mysql.createPool({
     host: process.env.DB_HOST,
@@ -58,10 +61,7 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'OK' });
 });
 
-// Serve index.html for all other routes (using named wildcard)
-app.get('/*path', (req, res) => {
-    res.sendFile(path.join(__dirname, 'my-react-app/public', 'index.html'));
-});
+
 
 app.post('/api/auth/google', async (req, res) => {
     const { token, email, name, picture } = req.body;
@@ -170,9 +170,99 @@ app.post('/api/auth/google', async (req, res) => {
     }
 });
 
-app.post('api/logout', (req, res) => {
+app.get('/api/auth/user', async (req, res) => {
+    try {
+        // Check if user is logged in (has session)
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ 
+                success: false, 
+                error: 'Not authenticated' 
+            });
+        }
+        
+        // Get user from database
+        const [users] = await db.execute(
+            `SELECT 
+                user_id as id, 
+                email, 
+                name, 
+                picture, 
+                last_login 
+            FROM Student 
+            WHERE user_id = ?`,
+            [req.session.userId]
+        );
+        
+        if (users.length === 0) {
+            // User not found in database, clear session
+            req.session.destroy();
+            return res.status(401).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+        
+        const user = users[0];
+        
+        // Update last_login timestamp
+        await db.execute(
+            'UPDATE Student SET last_login = NOW() WHERE user_id = ?',
+            [user.id]
+        );
+        
+        
+        res.json({
+            success: true,
+            id: user.user_id,
+            email: user.email,
+            name: user.name,
+            picture: user.picture,
+            created_at: user.created_at,
+            last_login: user.last_login
+        });
+        
+    } catch (error) {
+        console.error('Error fetching user:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch user data' 
+        });
+    }
+});
 
-})
+app.post('/api/auth/logout', (req, res) => {
+    try {
+        
+        req.session.destroy((err) => {
+            if (err) {
+                console.error('Logout error:', err);
+                return res.status(500).json({ 
+                    success: false, 
+                    error: 'Failed to logout' 
+                });
+            }
+            
+            // Clear the session cookie
+            res.clearCookie('connect.sid');
+            
+            // Send success response
+            res.json({ 
+                success: true, 
+                message: 'Logged out successfully' 
+            });
+        });
+    } catch (error) {
+        console.error('Logout error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to logout' 
+        });
+    }
+});
+
+app.get('/*path', (req, res) => {
+    res.sendFile(path.join(__dirname, '../', 'index.html'));
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

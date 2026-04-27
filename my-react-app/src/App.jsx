@@ -71,6 +71,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage loginWithGoogle={loginWithGoogle} />} />
+      <Route path="/dashboard" element={<Dashboard loginWithGoogle={loginWithGoogle} />} />
       {/* <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/reviews" element={<Reviews />} />
       <Route path="/about" element={<About />} /> */}

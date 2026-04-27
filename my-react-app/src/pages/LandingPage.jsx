@@ -45,22 +45,23 @@ function LandingPage({ loginWithGoogle }) {
 
   const checkUserSession = async () => {
     try {
-      const response = await fetch('/api/auth/user', {
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
+        const response = await fetch('/api/auth/user', {  
+            credentials: 'include',
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        if (response.ok) {
+            const userData = await response.json();
+            setUser(userData);
+            navigate('/dashboard')
         }
-      });
-      
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
-        console.log('User session found:', userData);
-      }
     } catch (error) {
-      console.error('Error checking session:', error);
+        console.error('Error checking session:', error);
     }
-  };
+};
 
   const handleLogout = async () => {
     try {
