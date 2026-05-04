@@ -9,6 +9,7 @@ const multer = require('multer');
 const csv = require('csv-parser');
 const stream = require('stream');
 const app = express();
+const fs = require('fs').promises; 
 
 require('dotenv').config();
 
@@ -80,48 +81,361 @@ app.get('/api/dashboard/', (req, res) => {
 });
 
 // Configure multer to use memory storage 
-const upload = multer({ storage: multer.memoryStorage() });
-
-app.post('/api/upload', upload.single('file'), (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
+const storage = multer.diskStorage({
+    destination: async (req, file, cb) => {
+        const uploadDir = path.join(__dirname, '../uploads/datasets');
+        try {
+            await fs.mkdir(uploadDir, { recursive: true });
+            cb(null, uploadDir);
+        } catch (error) {
+            cb(error, uploadDir);
+        }
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        cb(null, `dataset-${uniqueSuffix}${ext}`);
     }
-
-    const results = [];
-    const bufferStream = new stream.PassThrough();
-    bufferStream.end(req.file.buffer);
-
-    bufferStream
-        .pipe(csv())
-        .on('data', (data) => results.push(data))
-        .on('end', async () => {
-            if (results.length === 0) {
-                return res.status(400).json({ error: 'CSV file is empty' });
-            }
-
-            try {
-                // Get columns from the first row of CSV
-                const columns = Object.keys(results[0]);
-
-                // Extract values for each row in the same order as columns
-                const values = results.map(row => columns.map(col => row[col]));
-
-                // Insert into the database using parameterized query for bulk insert
-                const query = `INSERT INTO DATASET (??) VALUES ?`;
-                await db.query(query, [columns, values]);
-
-                res.json({ success: true, message: `Successfully uploaded ${results.length} rows to database.` });
-            } catch (error) {
-                console.error('Database error:', error);
-                res.status(500).json({ error: 'Failed to insert data into database. Check if CSV columns match database schema.' });
-            }
-        })
-        .on('error', (error) => {
-            console.error('CSV Parsing error:', error);
-            res.status(500).json({ error: 'Failed to parse CSV file' });
-        });
 });
-// API routes (add your API endpoints here)
+
+const upload = multer({ 
+    storage: storage,
+    limits: {
+        fileSize: 100 * 1024 * 1024 // 100MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedExt = ['.csv', '.json', '.xlsx', '.xls'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        
+        if (allowedExt.includes(ext)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only CSV, JSON, and Excel files are allowed.'));
+        }
+    }
+});
+
+
+
+app.post('/api/upload', upload.single('dataset'), async (req, res) => {
+    let connection;
+    
+    try {
+        // Check authentication
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authenticated'
+            });
+        }
+
+        // Check if user is admin
+        const [users] = await db.execute(
+            'SELECT role FROM User WHERE user_id = ?',
+            [req.session.userId]
+        );
+        
+        if (users.length === 0 || users[0].role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                error: 'Unauthorized. Admin access required.'
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: 'No file uploaded'
+            });
+        }
+
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        // Parse form data (coming as JSON string in the 'metadata' field)
+        let metadata = {};
+        if (req.body.metadata) {
+            try {
+                metadata = JSON.parse(req.body.metadata);
+            } catch (e) {
+                metadata = req.body;
+            }
+        } else {
+            metadata = req.body;
+        }
+
+        // Validate required fields
+        const requiredFields = ['title', 'description', 'author'];
+        for (const field of requiredFields) {
+            if (!metadata[field]) {
+                await connection.rollback();
+                return res.status(400).json({
+                    success: false,
+                    error: `Missing required field: ${field}`
+                });
+            }
+        }
+
+        // Process tags and columns (convert arrays to comma-separated strings)
+        const tags = Array.isArray(metadata.tags) ? metadata.tags.join(',') : metadata.tags || '';
+        const columns = Array.isArray(metadata.columns) ? metadata.columns.join(',') : metadata.columns || '';
+
+        // Insert dataset metadata into database
+        const [result] = await connection.execute(
+            `INSERT INTO Dataset (
+                title, 
+                description, 
+                category, 
+                author, 
+                format, 
+                size, 
+                tags,
+                columns,
+                version, 
+                license, 
+                source, 
+                methodology, 
+                update_frequency, 
+                is_public,
+                file_name,
+                file_size,
+                uploaded_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                metadata.title,
+                metadata.description,
+                metadata.category || 'uncategorized',
+                metadata.author,
+                metadata.format || 'CSV',
+                metadata.size || formatFileSize(req.file.size),
+                tags,
+                columns,
+                metadata.version || '1.0.0',
+                metadata.license || 'MIT',
+                metadata.source || null,
+                metadata.methodology || null,
+                metadata.updateFrequency || 'one-time',
+                metadata.isPublic === 'true' || metadata.isPublic === true ? 1 : 1, // Default to public
+                req.file.filename,
+                req.file.size,
+                req.session.userId
+            ]
+        );
+
+        await connection.commit();
+
+        res.json({
+            success: true,
+            message: 'Dataset uploaded successfully',
+            dataset: {
+                id: result.insertId,
+                title: metadata.title,
+                description: metadata.description,
+                category: metadata.category,
+                file: req.file.filename,
+                tags: metadata.tags,
+                columns: metadata.columns
+            }
+        });
+
+    } catch (error) {
+        if (connection) {
+            await connection.rollback();
+        }
+        console.error('Upload error:', error);
+        
+        // Clean up uploaded file if transaction fails
+        if (req.file && req.file.path) {
+            try {
+                await fs.unlink(req.file.path);
+            } catch (unlinkError) {
+                console.error('Error cleaning up file:', unlinkError);
+            }
+        }
+        
+        res.status(500).json({
+            success: false,
+            error: 'Failed to upload dataset: ' + error.message
+        });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
+    }
+});
+
+// Helper function to format file size
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// New endpoint to get all datasets
+app.get('/api/datasets', async (req, res) => {
+    try {
+        const { category, search, limit = 20, offset = 0 } = req.query;
+        
+        // Ensure limit and offset are valid integers
+        const parsedLimit = Math.max(1, Math.min(100, parseInt(limit) || 20));
+        const parsedOffset = Math.max(0, parseInt(offset) || 0);
+        
+        let query = `
+            SELECT 
+                d.*,
+                u.name as uploader_name
+            FROM Dataset d
+            LEFT JOIN User u ON d.uploaded_by = u.user_id
+            WHERE d.is_public = 1
+        `;
+        
+        const params = [];
+        
+        if (category && category !== 'all') {
+            query += ' AND d.category = ?';
+            params.push(category);
+        }
+        
+        if (search) {
+            query += ' AND (d.title LIKE ? OR d.description LIKE ?)';
+            params.push(`%${search}%`, `%${search}%`);
+        }
+        
+        query += ' ORDER BY d.created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(parsedLimit, 10), parseInt(parsedOffset, 10));
+        
+        console.log('Executing query:', query);
+        console.log('With params:', params);
+        
+        const [datasets] = await db.query(query, params);
+        
+        // Process tags and columns for each dataset
+        const processedDatasets = datasets.map(dataset => ({
+            ...dataset,
+            tags: dataset.tags ? dataset.tags.split(',') : [],
+            columns: dataset.columns ? dataset.columns.split(',') : []
+        }));
+        
+        // Get total count
+        const [countResult] = await db.execute(
+            'SELECT COUNT(*) as total FROM Dataset WHERE is_public = 1',
+            []
+        );
+        
+        res.json({
+            success: true,
+            datasets: processedDatasets,
+            total: countResult[0].total,
+            limit: parsedLimit,
+            offset: parsedOffset
+        });
+        
+    } catch (error) {
+        console.error('Error fetching datasets:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch datasets: ' + error.message
+        });
+    }
+});
+
+// Get single dataset by ID
+app.get('/api/datasets/:id', async (req, res) => {
+    try {
+        const datasetId = req.params.id;
+        
+        const [datasets] = await db.execute(
+            `SELECT 
+                d.*,
+                u.name as uploader_name,
+                u.email as uploader_email
+            FROM Dataset d
+            LEFT JOIN User u ON d.uploaded_by = u.user_id
+            WHERE d.dataset_id = ?`,
+            [datasetId]
+        );
+        
+        if (datasets.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Dataset not found'
+            });
+        }
+        
+        const dataset = datasets[0];
+        dataset.tags = dataset.tags ? dataset.tags.split(',') : [];
+        dataset.columns = dataset.columns ? dataset.columns.split(',') : [];
+        
+        // Increment view count
+        await db.execute(
+            'UPDATE Dataset SET views = views + 1 WHERE dataset_id = ?',
+            [datasetId]
+        );
+        
+        res.json({
+            success: true,
+            dataset: dataset
+        });
+        
+    } catch (error) {
+        console.error('Error fetching dataset:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch dataset'
+        });
+    }
+});
+
+// Download dataset file
+app.get('/api/datasets/:id/download', async (req, res) => {
+    try {
+        const datasetId = req.params.id;
+        
+        const [datasets] = await db.execute(
+            'SELECT file_name, title FROM Dataset WHERE dataset_id = ?',
+            [datasetId]
+        );
+        
+        if (datasets.length === 0 || !datasets[0].file_name) {
+            return res.status(404).json({
+                success: false,
+                error: 'Dataset file not found'
+            });
+        }
+        
+        const dataset = datasets[0];
+        const filePath = path.join(__dirname, '../uploads/datasets', dataset.file_name);
+        
+        // Check if file exists
+        try {
+            await fs.access(filePath);
+        } catch (error) {
+            return res.status(404).json({
+                success: false,
+                error: 'File not found on server'
+            });
+        }
+        
+        // Increment download count
+        await db.execute(
+            'UPDATE Dataset SET downloads = downloads + 1 WHERE dataset_id = ?',
+            [datasetId]
+        );
+        
+        // Send file
+        res.download(filePath, `${dataset.title}.csv`);
+        
+    } catch (error) {
+        console.error('Error downloading dataset:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to download dataset'
+        });
+    }
+});
+
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK' });
 });

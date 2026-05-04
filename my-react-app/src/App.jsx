@@ -7,6 +7,7 @@ import { useGoogleLogin } from '@react-oauth/google';
 import Dashboard from './pages/Dashboard';
 import LoginPage from './pages/LoginPage';
 import LandingPage from './pages/LandingPage';
+import NewDataset from './pages/NewDataset';
 
 
 
@@ -72,6 +73,7 @@ function App() {
     <Routes>
       <Route path="/" element={<LandingPage loginWithGoogle={loginWithGoogle} />} />
       <Route path="/dashboard" element={<Dashboard loginWithGoogle={loginWithGoogle} />} />
+      <Route path="/new-dataset" element={<NewDataset loginWithGoogle={loginWithGoogle} />} />
       {/* <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/reviews" element={<Reviews />} />
       <Route path="/about" element={<About />} /> */}

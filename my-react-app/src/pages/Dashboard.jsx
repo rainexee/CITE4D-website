@@ -238,14 +238,57 @@ function Dashboard() {
     }
   };
 
-  const loadDatasets = () => {
-    // Simulate API call
-    setTimeout(() => {
-      setDatasets(sampleDatasets);
-      setFilteredDatasets(sampleDatasets);
-      setIsLoading(false);
-    }, 1000);
-  };
+  const loadDatasets = async () => {
+    setIsLoading(true);
+    try {
+        const response = await fetch('/api/datasets?limit=20', {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.datasets) {
+                // Transform API data to match component expectations
+                const transformedDatasets = data.datasets.map(dataset => ({
+                    id: dataset.dataset_id,
+                    title: dataset.title,
+                    description: dataset.description,
+                    category: dataset.category,
+                    views: dataset.views || 0,
+                    likes: dataset.likes || 0,
+                    downloads: dataset.downloads || 0,
+                    reviews: dataset.reviews || 0,
+                    tags: dataset.tags || [],
+                    author: dataset.author || dataset.uploader_name,
+                    dateAdded: dataset.created_at ? dataset.created_at.split('T')[0] : '',
+                    lastUpdated: dataset.updated_at ? dataset.updated_at.split('T')[0] : '',
+                    size: dataset.size || 'N/A',
+                    format: dataset.format || 'CSV',
+                    columns: dataset.columns || [],
+                    preview: true
+                }));
+                setDatasets(transformedDatasets);
+                setFilteredDatasets(transformedDatasets);
+            } else {
+                // Fallback to sample data if no datasets
+                setDatasets(sampleDatasets);
+                setFilteredDatasets(sampleDatasets);
+            }
+        } else {
+            // Fallback to sample data if API fails
+            console.log('Using sample data');
+            setDatasets(sampleDatasets);
+            setFilteredDatasets(sampleDatasets);
+        }
+    } catch (error) {
+        console.error('Error loading datasets:', error);
+        // Fallback to sample data
+        setDatasets(sampleDatasets);
+        setFilteredDatasets(sampleDatasets);
+    } finally {
+        setIsLoading(false);
+    }
+};
 
   const handleLogout = async () => {
     try {
@@ -300,10 +343,37 @@ function Dashboard() {
     // Increment view count (would be an API call in production)
   };
 
-  const handleDownloadDataset = (dataset) => {
-    alert(`Downloading ${dataset.title}...`);
-    // Implement actual download logic
-  };
+  const handleDownloadDataset = async (dataset) => {
+    try {
+        const response = await fetch(`/api/datasets/${dataset.id}/download`, {
+            credentials: 'include'
+        });
+        
+        if (response.ok) {
+            // Create a blob from the response
+            const blob = await response.blob();
+            
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            // Set filename
+            const filename = `${dataset.title}.${dataset.format.toLowerCase()}`;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Failed to download dataset. Please try again.');
+        }
+    } catch (error) {
+        console.error('Download error:', error);
+        alert('Error downloading dataset. Please try again.');
+    }
+};
 
   if (isLoading) {
     return (
@@ -415,7 +485,10 @@ function Dashboard() {
             </button>
 
             {user?.role === "admin" && (
-              <button className="create-btn">
+              <button 
+                className="create-btn"
+                onClick={() => navigate('/new-dataset')}
+              >
                 <Plus size={18} />
                 <span>New Dataset</span>
               </button>
