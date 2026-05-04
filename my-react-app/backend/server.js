@@ -132,7 +132,7 @@ app.post('/api/auth/google', async (req, res) => {
 
         // Check if user exists in database
         const [users] = await db.execute(
-            'SELECT * FROM Student WHERE email = ?',
+            'SELECT * FROM User WHERE email = ?',
             [email]
         );
 
@@ -141,7 +141,7 @@ app.post('/api/auth/google', async (req, res) => {
         if (users.length === 0) {
             // Create new user
             const [result] = await db.execute(
-                'INSERT INTO Student (email, name, picture) VALUES (?, ?, ?)',
+                'INSERT INTO User (email, name, picture) VALUES (?, ?, ?)',
                 [email, name || googleUser.name, picture || googleUser.picture]
             );
 
@@ -159,7 +159,7 @@ app.post('/api/auth/google', async (req, res) => {
 
             // Update last login timestamp
             await db.execute(
-                'UPDATE Student SET last_login = NOW() WHERE user_id = ?',
+                'UPDATE User SET last_login = NOW() WHERE user_id = ?',
                 [user.user_id]
             );
 
@@ -221,8 +221,9 @@ app.get('/api/auth/user', async (req, res) => {
                 email, 
                 name, 
                 picture, 
-                last_login 
-            FROM Student 
+                last_login,
+                role 
+            FROM User 
             WHERE user_id = ?`,
             [req.session.userId]
         );
@@ -240,7 +241,7 @@ app.get('/api/auth/user', async (req, res) => {
 
         // Update last_login timestamp
         await db.execute(
-            'UPDATE Student SET last_login = NOW() WHERE user_id = ?',
+            'UPDATE User SET last_login = NOW() WHERE user_id = ?',
             [user.id]
         );
 
@@ -252,6 +253,7 @@ app.get('/api/auth/user', async (req, res) => {
             name: user.name,
             picture: user.picture,
             created_at: user.created_at,
+            role: user.role,
             last_login: user.last_login
         });
 

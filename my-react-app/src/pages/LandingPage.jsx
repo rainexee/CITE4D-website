@@ -140,7 +140,7 @@ function LandingPage({ loginWithGoogle }) {
     {
       name: "Maria Santos",
       course: "Computer Science",
-      review: "Datanaut helped me choose the right professors for my major subjects. The reviews are honest and incredibly helpful!",
+      review: "The Data Collective helped me choose the right professors for my major subjects. The reviews are honest and incredibly helpful!",
       rating: 5,
       avatar: "https://ui-avatars.com/api/?name=Maria+Santos&background=667eea&color=fff"
     },
@@ -167,7 +167,7 @@ function LandingPage({ loginWithGoogle }) {
         <div className="nav-container">
           <div className="logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
             <Database size={28} />
-            <span>Datanaut</span>
+            <span>The Data Collective</span>
           </div>
           <div className="nav-links">
             <a href="#features">Features</a>
@@ -277,7 +277,7 @@ function LandingPage({ loginWithGoogle }) {
                 <span className="gradient-text"> Your Courses</span>
               </h1>
               <p className="hero-subtitle">
-                Datanaut is the unofficial platform where DLSU students share honest reviews about 
+                The Data Collective is the unofficial platform where DLSU students share honest reviews about 
                 professors, courses, and class experiences. Make informed decisions for your enlistment.
               </p>
               <div className="hero-buttons">
@@ -325,7 +325,7 @@ function LandingPage({ loginWithGoogle }) {
             <h2>Everything You Need to Know</h2>
             <p>
               From detailed professor reviews to an active voting system, 
-              Datanaut provides all the insights for your academic journey.
+              The Data Collective provides all the insights for your academic journey.
             </p>
           </div>
           
@@ -360,7 +360,7 @@ function LandingPage({ loginWithGoogle }) {
       <section className="howitworks-section">
         <div className="container">
           <div className="section-header">
-            <h2>How Datanaut Works</h2>
+            <h2>How The Data Collective Works</h2>
             <p>Simple steps to start making informed decisions</p>
           </div>
           
@@ -402,7 +402,7 @@ function LandingPage({ loginWithGoogle }) {
         <div className="container">
           <div className="section-header">
             <h2>What Students Say</h2>
-            <p>Join thousands of DLSU students who trust Datanaut</p>
+            <p>Join thousands of DLSU students who trust The Data Collective</p>
           </div>
           
           <div className="testimonials-grid">
@@ -432,7 +432,7 @@ function LandingPage({ loginWithGoogle }) {
         <div className="container">
           <div className="cta-content">
             <h2>Ready to Make Informed Decisions?</h2>
-            <p>Join the Datanaut community today and never be caught off guard by a difficult class again.</p>
+            <p>Join the The Data Collective community today and never be caught off guard by a difficult class again.</p>
             {user ? (
               <button className="cta-button" onClick={() => navigate('/dashboard')}>
                 Go to Dashboard
@@ -459,7 +459,7 @@ function LandingPage({ loginWithGoogle }) {
           <div className="footer-grid">
             <div className="footer-brand">
               <Database size={32} />
-              <h3>Datanaut</h3>
+              <h3>The Data Collective</h3>
               <p>Empowering DLSU students with authentic academic insights since 2024.</p>
               <div className="social-links">
                 <a href="#" style={{ color: 'white', marginRight: '15px', textDecoration: 'none' }}>GitHub</a>
@@ -491,7 +491,7 @@ function LandingPage({ loginWithGoogle }) {
           </div>
           
           <div className="footer-bottom">
-            <p>&copy; 2024 Datanaut. An unofficial DLSU platform. All rights reserved.</p>
+            <p>&copy; 2024 The Data Collective. An unofficial DLSU platform. All rights reserved.</p>
             <div className="footer-badge">
               <MapPin size={14} />
               <span>De La Salle University Community</span>

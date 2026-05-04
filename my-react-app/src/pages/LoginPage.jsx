@@ -84,7 +84,7 @@ function LoginPage() {
         <div className="login-card">
           <div className="login-logo">
             <Database size={48} strokeWidth={1.5} />
-            <h1>Datanaut</h1>
+            <h1>The Data Collective</h1>
           </div>
           
           <h2>Welcome Back</h2>

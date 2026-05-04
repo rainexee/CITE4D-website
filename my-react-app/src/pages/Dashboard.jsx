@@ -127,7 +127,7 @@ function Dashboard() {
       downloads: 892,
       reviews: 156,
       tags: ["professors", "ratings", "teaching"],
-      author: "Datanaut Community",
+      author: "The Data Collective Community",
       dateAdded: "2024-02-15",
       lastUpdated: "2024-03-22",
       size: "4.2 MB",
@@ -321,7 +321,7 @@ function Dashboard() {
         <div className="sidebar-header">
           <div className="logo" onClick={() => navigate('/')}>
             <Database size={28} />
-            <span>Datanaut</span>
+            <span>The Data Collective</span>
           </div>
           <button className="close-sidebar" onClick={() => setSidebarOpen(false)}>
             <X size={20} />
@@ -413,10 +413,16 @@ function Dashboard() {
             <button className="icon-btn">
               <Bell size={20} />
             </button>
-            <button className="create-btn">
-              <Plus size={18} />
-              <span>New Dataset</span>
-            </button>
+
+            {user?.role === "admin" && (
+              <button className="create-btn">
+                <Plus size={18} />
+                <span>New Dataset</span>
+              </button>
+
+              )
+            }
+            
             <div className="user-menu-wrapper">
               <div 
                 className="user-avatar-btn"
