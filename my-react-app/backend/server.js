@@ -5,6 +5,9 @@ const cors = require('cors');
 const session = require('express-session');
 const nodemailer = require("nodemailer");
 const path = require('path');
+const multer = require('multer');
+const csv = require('csv-parser');
+const stream = require('stream');
 const app = express();
 
 require('dotenv').config();
@@ -71,25 +74,53 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 
+
 app.get('/api/dashboard/', (req, res) => {
 
 });
 
-app.post('/api/upload', (req, res) => {
-    const { upload } = req.body;
+// Configure multer to use memory storage 
+const upload = multer({ storage: multer.memoryStorage() });
 
-    if (!upload || typeof upload !== 'string') {
-        return res.status(400).json({ error: 'Rule must be a valid input!' });
+app.post('/api/upload', upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    //security testing for filesize
-    if (upload.length > 255) {
-        return res.status(400).json({ error: 'Rule cannot exceed 255 characters' });
-    }
+    const results = [];
+    const bufferStream = new stream.PassThrough();
+    bufferStream.end(req.file.buffer);
 
-    // fix later on
-    db.query('INSERT INTO DATASET ? VALUES ? ? ? ? ?');
-})
+    bufferStream
+        .pipe(csv())
+        .on('data', (data) => results.push(data))
+        .on('end', async () => {
+            if (results.length === 0) {
+                return res.status(400).json({ error: 'CSV file is empty' });
+            }
+
+            try {
+                // Get columns from the first row of CSV
+                const columns = Object.keys(results[0]);
+
+                // Extract values for each row in the same order as columns
+                const values = results.map(row => columns.map(col => row[col]));
+
+                // Insert into the database using parameterized query for bulk insert
+                const query = `INSERT INTO DATASET (??) VALUES ?`;
+                await db.query(query, [columns, values]);
+
+                res.json({ success: true, message: `Successfully uploaded ${results.length} rows to database.` });
+            } catch (error) {
+                console.error('Database error:', error);
+                res.status(500).json({ error: 'Failed to insert data into database. Check if CSV columns match database schema.' });
+            }
+        })
+        .on('error', (error) => {
+            console.error('CSV Parsing error:', error);
+            res.status(500).json({ error: 'Failed to parse CSV file' });
+        });
+});
 // API routes (add your API endpoints here)
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK' });
