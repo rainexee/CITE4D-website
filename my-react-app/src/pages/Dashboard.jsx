@@ -50,6 +50,8 @@ function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDataset, setSelectedDataset] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   // Sample dataset categories
   const categories = [
@@ -61,7 +63,7 @@ function Dashboard() {
     { id: 'recent', name: 'Recently Added', icon: <Clock size={18} />, count: 0 },
   ];
 
-  // Sample datasets data
+  // Sample datasets data with real sample rows
   const sampleDatasets = [
     {
       id: 1,
@@ -79,6 +81,13 @@ function Dashboard() {
       size: "2.3 MB",
       format: "CSV, JSON",
       columns: ["course_code", "professor_name", "difficulty_rating", "workload_hours", "recommendation_score"],
+      sampleRows: [
+        { course_code: "CCPROG1", professor_name: "Dr. Maria Santos", difficulty_rating: 3.2, workload_hours: 8.5, recommendation_score: 4.5 },
+        { course_code: "CCPROG2", professor_name: "Dr. Juan Reyes", difficulty_rating: 3.8, workload_hours: 10.0, recommendation_score: 4.2 },
+        { course_code: "CSINTSY", professor_name: "Prof. Anna Cruz", difficulty_rating: 4.2, workload_hours: 12.5, recommendation_score: 3.8 },
+        { course_code: "CSMATH", professor_name: "Dr. Carlos Lopez", difficulty_rating: 3.5, workload_hours: 9.0, recommendation_score: 4.3 },
+        { course_code: "CSELECT", professor_name: "Prof. Bea Rivera", difficulty_rating: 2.8, workload_hours: 7.0, recommendation_score: 4.7 }
+      ],
       preview: true
     },
     {
@@ -97,6 +106,13 @@ function Dashboard() {
       size: "1.8 MB",
       format: "CSV, Excel",
       columns: ["student_id", "department", "gpa", "study_hours", "extracurricular_hours"],
+      sampleRows: [
+        { student_id: "12123456", department: "Computer Science", gpa: 3.75, study_hours: 25, extracurricular_hours: 8 },
+        { student_id: "12123457", department: "Business", gpa: 3.45, study_hours: 20, extracurricular_hours: 12 },
+        { student_id: "12123458", department: "Engineering", gpa: 3.60, study_hours: 28, extracurricular_hours: 5 },
+        { student_id: "12123459", department: "Psychology", gpa: 3.85, study_hours: 22, extracurricular_hours: 10 },
+        { student_id: "12123460", department: "Communications", gpa: 3.30, study_hours: 18, extracurricular_hours: 15 }
+      ],
       preview: true
     },
     {
@@ -115,6 +131,13 @@ function Dashboard() {
       size: "3.1 MB",
       format: "CSV, JSON",
       columns: ["year", "semester", "department", "enrollment_count", "acceptance_rate"],
+      sampleRows: [
+        { year: 2023, semester: "1st Sem", department: "Computer Science", enrollment_count: 450, acceptance_rate: 0.68 },
+        { year: 2023, semester: "2nd Sem", department: "Computer Science", enrollment_count: 420, acceptance_rate: 0.65 },
+        { year: 2024, semester: "1st Sem", department: "Computer Science", enrollment_count: 480, acceptance_rate: 0.70 },
+        { year: 2023, semester: "1st Sem", department: "Business", enrollment_count: 520, acceptance_rate: 0.72 },
+        { year: 2023, semester: "2nd Sem", department: "Engineering", enrollment_count: 380, acceptance_rate: 0.60 }
+      ],
       preview: true
     },
     {
@@ -133,6 +156,13 @@ function Dashboard() {
       size: "4.2 MB",
       format: "CSV",
       columns: ["professor_id", "department", "teaching_score", "accessibility_score", "fairness_score", "difficulty_score"],
+      sampleRows: [
+        { professor_id: "PROF001", department: "Computer Science", teaching_score: 4.5, accessibility_score: 4.2, fairness_score: 4.3, difficulty_score: 3.8 },
+        { professor_id: "PROF002", department: "Mathematics", teaching_score: 4.2, accessibility_score: 3.9, fairness_score: 4.0, difficulty_score: 4.2 },
+        { professor_id: "PROF003", department: "English", teaching_score: 4.8, accessibility_score: 4.6, fairness_score: 4.7, difficulty_score: 3.2 },
+        { professor_id: "PROF004", department: "Physics", teaching_score: 3.9, accessibility_score: 3.7, fairness_score: 4.1, difficulty_score: 4.5 },
+        { professor_id: "PROF005", department: "History", teaching_score: 4.3, accessibility_score: 4.4, fairness_score: 4.2, difficulty_score: 3.5 }
+      ],
       preview: true
     },
     {
@@ -151,6 +181,13 @@ function Dashboard() {
       size: "1.5 MB",
       format: "CSV, Excel",
       columns: ["major", "employment_status", "starting_salary", "company_name", "job_satisfaction"],
+      sampleRows: [
+        { major: "Computer Science", employment_status: "Employed", starting_salary: 45000, company_name: "Google", job_satisfaction: 4.5 },
+        { major: "Business", employment_status: "Employed", starting_salary: 40000, company_name: "Deloitte", job_satisfaction: 4.2 },
+        { major: "Engineering", employment_status: "Employed", starting_salary: 42000, company_name: "Lockheed Martin", job_satisfaction: 4.3 },
+        { major: "Psychology", employment_status: "Graduate School", starting_salary: 0, company_name: "N/A", job_satisfaction: 4.0 },
+        { major: "Communications", employment_status: "Employed", starting_salary: 38000, company_name: "ABS-CBN", job_satisfaction: 4.1 }
+      ],
       preview: true
     },
     {
@@ -169,6 +206,13 @@ function Dashboard() {
       size: "2.1 MB",
       format: "CSV, JSON",
       columns: ["course_code", "difficulty_rating", "avg_study_hours", "fail_rate", "recommendation"],
+      sampleRows: [
+        { course_code: "CSINTSY", difficulty_rating: 4.5, avg_study_hours: 15, fail_rate: 0.25, recommendation: 3.2 },
+        { course_code: "MATH101", difficulty_rating: 3.8, avg_study_hours: 10, fail_rate: 0.15, recommendation: 4.0 },
+        { course_code: "PHYS101", difficulty_rating: 4.2, avg_study_hours: 12, fail_rate: 0.20, recommendation: 3.5 },
+        { course_code: "ENGL102", difficulty_rating: 2.5, avg_study_hours: 6, fail_rate: 0.05, recommendation: 4.5 },
+        { course_code: "CHEM101", difficulty_rating: 4.0, avg_study_hours: 11, fail_rate: 0.18, recommendation: 3.8 }
+      ],
       preview: true
     },
     {
@@ -187,6 +231,13 @@ function Dashboard() {
       size: "1.2 MB",
       format: "CSV",
       columns: ["date", "hour", "visitor_count", "books_borrowed", "study_rooms_booked"],
+      sampleRows: [
+        { date: "2024-03-01", hour: 9, visitor_count: 45, books_borrowed: 32, study_rooms_booked: 8 },
+        { date: "2024-03-01", hour: 14, visitor_count: 120, books_borrowed: 85, study_rooms_booked: 15 },
+        { date: "2024-03-02", hour: 10, visitor_count: 78, books_borrowed: 54, study_rooms_booked: 10 },
+        { date: "2024-03-02", hour: 15, visitor_count: 95, books_borrowed: 67, study_rooms_booked: 12 },
+        { date: "2024-03-03", hour: 11, visitor_count: 88, books_borrowed: 61, study_rooms_booked: 11 }
+      ],
       preview: true
     },
     {
@@ -205,6 +256,13 @@ function Dashboard() {
       size: "3.8 MB",
       format: "CSV, JSON",
       columns: ["department", "publications_count", "citations", "avg_impact_factor", "collaborations"],
+      sampleRows: [
+        { department: "Computer Science", publications_count: 45, citations: 1250, avg_impact_factor: 2.8, collaborations: 32 },
+        { department: "Physics", publications_count: 38, citations: 980, avg_impact_factor: 3.1, collaborations: 28 },
+        { department: "Chemistry", publications_count: 42, citations: 1100, avg_impact_factor: 3.0, collaborations: 30 },
+        { department: "Biology", publications_count: 52, citations: 1450, avg_impact_factor: 3.4, collaborations: 35 },
+        { department: "Mathematics", publications_count: 35, citations: 820, avg_impact_factor: 2.5, collaborations: 25 }
+      ],
       preview: true
     }
   ];
@@ -265,6 +323,7 @@ function Dashboard() {
                     size: dataset.size || 'N/A',
                     format: dataset.format || 'CSV',
                     columns: dataset.columns || [],
+                    sampleRows: dataset.sampleRows || [],
                     preview: true
                 }));
                 setDatasets(transformedDatasets);
@@ -337,10 +396,47 @@ function Dashboard() {
     setFilteredDatasets(filtered);
   };
 
-  const handleViewDataset = (dataset) => {
+  const handleViewDataset = async (dataset) => {
     setSelectedDataset(dataset);
     setShowModal(true);
-    // Increment view count (would be an API call in production)
+    setPreviewData(null);
+    setIsLoadingPreview(true);
+    
+    // Try to fetch real preview data from API
+    try {
+      const response = await fetch(`/api/datasets/${dataset.id}/preview`, {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.preview) {
+          setPreviewData(data.preview);
+        } else if (dataset.sampleRows) {
+          // Use sample rows if available
+          setPreviewData({
+            columns: dataset.columns,
+            rows: dataset.sampleRows
+          });
+        }
+      } else if (dataset.sampleRows) {
+        // Use sample rows from the dataset
+        setPreviewData({
+          columns: dataset.columns,
+          rows: dataset.sampleRows
+        });
+      }
+    } catch (error) {
+      console.error('Error loading preview:', error);
+      if (dataset.sampleRows) {
+        setPreviewData({
+          columns: dataset.columns,
+          rows: dataset.sampleRows
+        });
+      }
+    } finally {
+      setIsLoadingPreview(false);
+    }
   };
 
   const handleDownloadDataset = async (dataset) => {
@@ -728,7 +824,7 @@ function Dashboard() {
                 </div>
                 
                 <div className="info-section">
-                  <h3>Columns</h3>
+                  <h3>Columns ({selectedDataset.columns.length})</h3>
                   <div className="columns-list">
                     {selectedDataset.columns.map((col, index) => (
                       <span key={index} className="column-tag">{col}</span>
@@ -738,27 +834,53 @@ function Dashboard() {
                 
                 {selectedDataset.preview && (
                   <div className="info-section">
-                    <h3>Data Preview</h3>
-                    <div className="preview-table">
-                      <table>
-                        <thead>
-                          <tr>
-                            {selectedDataset.columns.slice(0, 4).map((col, index) => (
-                              <th key={index}>{col}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[1, 2, 3].map((row) => (
-                            <tr key={row}>
-                              {selectedDataset.columns.slice(0, 4).map((_, index) => (
-                                <td key={index}>Sample data {row}.{index + 1}</td>
+                    <h3>Data Preview (First 5 rows)</h3>
+                    {isLoadingPreview ? (
+                      <div className="preview-loading">
+                        <div className="loading-spinner-small"></div>
+                        <p>Loading preview data...</p>
+                      </div>
+                    ) : previewData && previewData.rows && previewData.rows.length > 0 ? (
+                      <div className="preview-table-container">
+                        <div className="preview-scroll">
+                          <table className="preview-table">
+                            <thead>
+                              <tr>
+                                <th className="preview-row-number">#</th>
+                                {selectedDataset.columns.map((col, index) => (
+                                  <th key={index}>{col}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {previewData.rows.slice(0, 5).map((row, rowIndex) => (
+                                <tr key={rowIndex}>
+                                  <td className="preview-row-number">{rowIndex + 1}</td>
+                                  {selectedDataset.columns.map((col, colIndex) => (
+                                    <td key={colIndex}>
+                                      {row[col] !== undefined && row[col] !== null
+                                        ? typeof row[col] === 'number'
+                                          ? row[col].toLocaleString()
+                                          : String(row[col])
+                                        : '—'}
+                                    </td>
+                                  ))}
+                                </tr>
                               ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                            </tbody>
+                          </table>
+                        </div>
+                        {previewData.rows.length > 5 && (
+                          <div className="preview-note">
+                            Showing 5 of {previewData.rows.length} rows
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="preview-error">
+                        <p>No preview data available for this dataset.</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

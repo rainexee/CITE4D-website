@@ -388,6 +388,88 @@ app.get('/api/datasets/:id', async (req, res) => {
     }
 });
 
+// Add this to server.js
+app.get('/api/datasets/:id/preview', async (req, res) => {
+    try {
+        const datasetId = req.params.id;
+        
+        // Get the file path from database
+        const [datasets] = await db.execute(
+            'SELECT file_name, format FROM Dataset WHERE dataset_id = ?',
+            [datasetId]
+        );
+        
+        if (datasets.length === 0 || !datasets[0].file_name) {
+            return res.status(404).json({
+                success: false,
+                error: 'Dataset file not found'
+            });
+        }
+        
+        const dataset = datasets[0];
+        const filePath = path.join(__dirname, '../uploads/datasets', dataset.file_name);
+        
+        // Check if file exists
+        try {
+            await fs.access(filePath);
+        } catch (error) {
+            return res.status(404).json({
+                success: false,
+                error: 'File not found on server'
+            });
+        }
+        
+        // Read and parse the file
+        const fileContent = await fs.readFile(filePath, 'utf-8');
+        let previewRows = [];
+        let columns = [];
+        
+        if (dataset.format.toLowerCase() === 'csv') {
+            // Parse CSV
+            const lines = fileContent.split('\n');
+            if (lines.length > 0) {
+                columns = lines[0].split(',').map(col => col.trim().replace(/["']/g, ''));
+                
+                // Get first 5 rows (skip header)
+                for (let i = 1; i <= Math.min(5, lines.length - 1); i++) {
+                    const values = lines[i].split(',').map(val => val.trim().replace(/["']/g, ''));
+                    const row = {};
+                    columns.forEach((col, idx) => {
+                        row[col] = values[idx] || '';
+                    });
+                    previewRows.push(row);
+                }
+            }
+        } else if (dataset.format.toLowerCase() === 'json') {
+            // Parse JSON
+            const jsonData = JSON.parse(fileContent);
+            if (Array.isArray(jsonData) && jsonData.length > 0) {
+                columns = Object.keys(jsonData[0]);
+                previewRows = jsonData.slice(0, 5);
+            } else if (jsonData.data && Array.isArray(jsonData.data)) {
+                columns = Object.keys(jsonData.data[0]);
+                previewRows = jsonData.data.slice(0, 5);
+            }
+        }
+        
+        res.json({
+            success: true,
+            preview: {
+                columns: columns,
+                rows: previewRows,
+                totalRows: previewRows.length
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error reading preview:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to load preview data'
+        });
+    }
+});
+
 // Download dataset file
 app.get('/api/datasets/:id/download', async (req, res) => {
     try {
