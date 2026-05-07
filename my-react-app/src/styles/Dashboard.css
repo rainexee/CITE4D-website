@@ -863,4 +863,52 @@
   .info-grid {
     grid-template-columns: 1fr;
   }
+  /* Modal Tabs */
+  .modal-tabs {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0 1.5rem;
+    border-bottom: 1px solid #e5e7eb;
+    background: white;
+  }
+
+  .modal-tab {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: none;
+    border: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+
+  .modal-tab:hover {
+    color: #3b82f6;
+  }
+
+  .modal-tab.active {
+    color: #3b82f6;
+  }
+
+  .modal-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #3b82f6;
+  }
+
+
+  .modal-body {
+    padding: 1.5rem;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
 }

@@ -3,6 +3,9 @@ USE AH_Crowdsource_DB;
 
 DROP TABLE IF EXISTS User;
 DROP TABLE IF EXISTS Dataset;
+DROP TABLE IF EXISTS DatasetAnnotation;
+DROP TABLE IF EXISTS DataPointAnnotation;
+DROP TABLE IF EXISTS AnnotationVote;
 
 CREATE TABLE IF NOT EXISTS User(
 	user_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,6 +45,60 @@ CREATE TABLE IF NOT EXISTS Dataset(
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (uploaded_by) REFERENCES User(user_id) ON DELETE SET NULL
+);
+
+-- Table for dataset-level annotations
+CREATE TABLE IF NOT EXISTS DatasetAnnotation (
+    annotation_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    user_id INT NOT NULL,
+    annotation_text TEXT NOT NULL,
+    annotation_type ENUM('general', 'methodology', 'quality', 'caution', 'insight', 'question') DEFAULT 'general',
+    is_resolved BOOLEAN DEFAULT FALSE,
+    parent_annotation_id INT NULL, -- For replies/threads
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_annotation_id) REFERENCES DatasetAnnotation(annotation_id) ON DELETE CASCADE,
+    INDEX idx_dataset (dataset_id),
+    INDEX idx_user (user_id),
+    INDEX idx_parent (parent_annotation_id)
+);
+
+-- Table for row/column specific annotations
+CREATE TABLE IF NOT EXISTS DataPointAnnotation (
+    data_annotation_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    user_id INT NOT NULL,
+    row_index INT NULL, -- row number (0-indexed)
+    column_name VARCHAR(255) NULL,
+    original_value TEXT NULL,
+    annotation_text TEXT NOT NULL,
+    annotation_type ENUM('error', 'missing', 'outlier', 'correction', 'note', 'question') DEFAULT 'note',
+    suggested_correction TEXT NULL,
+    is_verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE,
+    INDEX idx_dataset (dataset_id),
+    INDEX idx_user (user_id),
+    INDEX idx_row (row_index),
+    INDEX idx_column (column_name)
+);
+
+-- Table for annotation votes/likes
+CREATE TABLE IF NOT EXISTS AnnotationVote (
+    vote_id INT PRIMARY KEY AUTO_INCREMENT,
+    annotation_id INT NOT NULL,
+    user_id INT NOT NULL,
+    vote_type ENUM('upvote', 'downvote') DEFAULT 'upvote',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (annotation_id) REFERENCES DatasetAnnotation(annotation_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE,
+    UNIQUE KEY unique_vote (annotation_id, user_id),
+    INDEX idx_annotation (annotation_id)
 );
 
 

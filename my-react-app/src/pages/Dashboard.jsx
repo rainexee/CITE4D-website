@@ -36,6 +36,7 @@ import {
   MapPin
 } from 'lucide-react';
 import '../styles/Dashboard.css';
+import AnnotationsPanel from './AnnotationsPanel'; // ADD THIS LINE
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -52,6 +53,7 @@ function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [activeModalTab, setActiveModalTab] = useState('preview');
 
   // Sample dataset categories
   const categories = [
@@ -772,92 +774,125 @@ function Dashboard() {
               </button>
             </div>
             
+            {/* ADD THIS: Tab Navigation */}
+            <div className="modal-tabs">
+              <button 
+                className={`modal-tab ${activeModalTab === 'preview' ? 'active' : ''}`}
+                onClick={() => setActiveModalTab('preview')}
+              >
+                <Eye size={16} />
+                Data Preview
+              </button>
+              <button 
+                className={`modal-tab ${activeModalTab === 'annotations' ? 'active' : ''}`}
+                onClick={() => setActiveModalTab('annotations')}
+              >
+                <MessageSquare size={16} />
+                Discussion & Annotations
+              </button>
+            </div>
+            
             <div className="modal-body">
-              <div className="dataset-info">
-                <div className="info-section">
-                  <h3>Description</h3>
-                  <p>{selectedDataset.description}</p>
-                </div>
-                
-                <div className="info-section">
-                  <h3>Dataset Information</h3>
-                  <div className="info-grid">
-                    <div className="info-item">
-                      <strong>Format:</strong> {selectedDataset.format}
-                    </div>
-                    <div className="info-item">
-                      <strong>Size:</strong> {selectedDataset.size}
-                    </div>
-                    <div className="info-item">
-                      <strong>Last Updated:</strong> {selectedDataset.lastUpdated}
-                    </div>
-                    <div className="info-item">
-                      <strong>Author:</strong> {selectedDataset.author}
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="info-section">
-                  <h3>Columns ({selectedDataset.columns.length})</h3>
-                  <div className="columns-list">
-                    {selectedDataset.columns.map((col, index) => (
-                      <span key={index} className="column-tag">{col}</span>
-                    ))}
-                  </div>
-                </div>
-                
-                {selectedDataset.preview && (
+              {/* Tab 1: Data Preview Content */}
+              {activeModalTab === 'preview' && (
+                <div className="dataset-info">
                   <div className="info-section">
-                    <h3>Data Preview (First 5 rows)</h3>
-                    {isLoadingPreview ? (
-                      <div className="preview-loading">
-                        <div className="loading-spinner-small"></div>
-                        <p>Loading preview data...</p>
+                    <h3>Description</h3>
+                    <p>{selectedDataset.description}</p>
+                  </div>
+                  
+                  <div className="info-section">
+                    <h3>Dataset Information</h3>
+                    <div className="info-grid">
+                      <div className="info-item">
+                        <strong>Format:</strong> {selectedDataset.format}
                       </div>
-                    ) : previewData && previewData.rows && previewData.rows.length > 0 ? (
-                      <div className="preview-table-container">
-                        <div className="preview-scroll">
-                          <table className="preview-table">
-                            <thead>
-                              <tr>
-                                <th className="preview-row-number">#</th>
-                                {selectedDataset.columns.map((col, index) => (
-                                  <th key={index}>{col}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {previewData.rows.slice(0, 5).map((row, rowIndex) => (
-                                <tr key={rowIndex}>
-                                  <td className="preview-row-number">{rowIndex + 1}</td>
-                                  {selectedDataset.columns.map((col, colIndex) => (
-                                    <td key={colIndex}>
-                                      {row[col] !== undefined && row[col] !== null
-                                        ? typeof row[col] === 'number'
-                                          ? row[col].toLocaleString()
-                                          : String(row[col])
-                                        : '—'}
-                                    </td>
+                      <div className="info-item">
+                        <strong>Size:</strong> {selectedDataset.size}
+                      </div>
+                      <div className="info-item">
+                        <strong>Last Updated:</strong> {selectedDataset.lastUpdated}
+                      </div>
+                      <div className="info-item">
+                        <strong>Author:</strong> {selectedDataset.author}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="info-section">
+                    <h3>Columns ({selectedDataset.columns.length})</h3>
+                    <div className="columns-list">
+                      {selectedDataset.columns.map((col, index) => (
+                        <span key={index} className="column-tag">{col}</span>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {selectedDataset.preview && (
+                    <div className="info-section">
+                      <h3>Data Preview (First 5 rows)</h3>
+                      {isLoadingPreview ? (
+                        <div className="preview-loading">
+                          <div className="loading-spinner-small"></div>
+                          <p>Loading preview data...</p>
+                        </div>
+                      ) : previewData && previewData.rows && previewData.rows.length > 0 ? (
+                        <div className="preview-table-container">
+                          <div className="preview-scroll">
+                            <table className="preview-table">
+                              <thead>
+                                <tr>
+                                  <th className="preview-row-number">#</th>
+                                  {selectedDataset.columns.map((col, index) => (
+                                    <th key={index}>{col}</th>
                                   ))}
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        {previewData.rows.length > 5 && (
-                          <div className="preview-note">
-                            Showing 5 of {previewData.rows.length} rows
+                              </thead>
+                              <tbody>
+                                {previewData.rows.slice(0, 5).map((row, rowIndex) => (
+                                  <tr key={rowIndex}>
+                                    <td className="preview-row-number">{rowIndex + 1}</td>
+                                    {selectedDataset.columns.map((col, colIndex) => (
+                                      <td key={colIndex}>
+                                        {row[col] !== undefined && row[col] !== null
+                                          ? typeof row[col] === 'number'
+                                            ? row[col].toLocaleString()
+                                            : String(row[col])
+                                          : '—'}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="preview-error">
-                        <p>No preview data available for this dataset.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                          {previewData.rows.length > 5 && (
+                            <div className="preview-note">
+                              Showing 5 of {previewData.rows.length} rows
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="preview-error">
+                          <p>No preview data available for this dataset.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Tab 2: Annotations Panel Content - PUT THIS HERE */}
+              {activeModalTab === 'annotations' && (
+                <AnnotationsPanel 
+                  datasetId={selectedDataset.id}
+                  user={user}
+                  onAnnotationAdded={() => {
+                    // Optional: Refresh any counts or show notification
+                    console.log('Annotation added!');
+                  }}
+                />
+              )}
             </div>
             
             <div className="modal-footer">

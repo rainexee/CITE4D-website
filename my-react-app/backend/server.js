@@ -518,6 +518,424 @@ app.get('/api/datasets/:id/download', async (req, res) => {
     }
 });
 
+app.get('/api/datasets/:id/annotations', async (req, res) => {
+    try {
+        const datasetId = req.params.id;
+        const { includeResolved = false } = req.query;
+        
+        let query = `
+            SELECT 
+                da.*,
+                u.name as user_name,
+                u.picture as user_picture,
+                COUNT(DISTINCT av.vote_id) as vote_count,
+                SUM(CASE WHEN av.vote_type = 'upvote' THEN 1 ELSE 0 END) as upvotes,
+                SUM(CASE WHEN av.vote_type = 'downvote' THEN 1 ELSE 0 END) as downvotes,
+                (SELECT COUNT(*) FROM DatasetAnnotation WHERE parent_annotation_id = da.annotation_id) as reply_count
+            FROM DatasetAnnotation da
+            LEFT JOIN User u ON da.user_id = u.user_id
+            LEFT JOIN AnnotationVote av ON da.annotation_id = av.annotation_id
+            WHERE da.dataset_id = ? 
+            ${includeResolved === 'true' ? '' : 'AND da.is_resolved = 0'}
+            AND da.parent_annotation_id IS NULL
+            GROUP BY da.annotation_id
+            ORDER BY da.created_at DESC
+        `;
+        
+        const [annotations] = await db.execute(query, [datasetId]);
+        
+        // Get replies for each annotation
+        for (let annotation of annotations) {
+            const [replies] = await db.execute(`
+                SELECT 
+                    da.*,
+                    u.name as user_name,
+                    u.picture as user_picture
+                FROM DatasetAnnotation da
+                LEFT JOIN User u ON da.user_id = u.user_id
+                WHERE da.parent_annotation_id = ?
+                ORDER BY da.created_at ASC
+            `, [annotation.annotation_id]);
+            
+            annotation.replies = replies;
+        }
+        
+        res.json({
+            success: true,
+            annotations: annotations
+        });
+        
+    } catch (error) {
+        console.error('Error fetching annotations:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch annotations'
+        });
+    }
+});
+
+// Get data point annotations for a dataset
+app.get('/api/datasets/:id/data-annotations', async (req, res) => {
+    try {
+        const datasetId = req.params.id;
+        
+        const [annotations] = await db.execute(`
+            SELECT 
+                dpa.*,
+                u.name as user_name,
+                u.picture as user_picture
+            FROM DataPointAnnotation dpa
+            LEFT JOIN User u ON dpa.user_id = u.user_id
+            WHERE dpa.dataset_id = ?
+            ORDER BY dpa.row_index, dpa.column_name
+        `, [datasetId]);
+        
+        res.json({
+            success: true,
+            annotations: annotations
+        });
+        
+    } catch (error) {
+        console.error('Error fetching data annotations:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch data annotations'
+        });
+    }
+});
+
+// Add a new annotation
+app.post('/api/datasets/:id/annotations', async (req, res) => {
+    let connection;
+    
+    try {
+        // Check authentication
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authenticated'
+            });
+        }
+        
+        const datasetId = req.params.id;
+        const { 
+            annotation_text, 
+            annotation_type = 'general', 
+            parent_annotation_id = null 
+        } = req.body;
+        
+        if (!annotation_text || annotation_text.trim().length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Annotation text is required'
+            });
+        }
+        
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+        
+        // Insert annotation
+        const [result] = await connection.execute(
+            `INSERT INTO DatasetAnnotation (
+                dataset_id, 
+                user_id, 
+                annotation_text, 
+                annotation_type,
+                parent_annotation_id
+            ) VALUES (?, ?, ?, ?, ?)`,
+            [datasetId, req.session.userId, annotation_text, annotation_type, parent_annotation_id]
+        );
+        
+        // Get the created annotation with user info
+        const [newAnnotation] = await connection.execute(`
+            SELECT 
+                da.*,
+                u.name as user_name,
+                u.picture as user_picture,
+                0 as vote_count,
+                0 as upvotes,
+                0 as downvotes,
+                0 as reply_count
+            FROM DatasetAnnotation da
+            LEFT JOIN User u ON da.user_id = u.user_id
+            WHERE da.annotation_id = ?
+        `, [result.insertId]);
+        
+        await connection.commit();
+        
+        res.json({
+            success: true,
+            message: 'Annotation added successfully',
+            annotation: newAnnotation[0]
+        });
+        
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Error adding annotation:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to add annotation'
+        });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// Add a data point annotation
+app.post('/api/datasets/:id/data-annotations', async (req, res) => {
+    let connection;
+    
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authenticated'
+            });
+        }
+        
+        const datasetId = req.params.id;
+        const { 
+            row_index, 
+            column_name, 
+            original_value,
+            annotation_text, 
+            annotation_type = 'note',
+            suggested_correction = null
+        } = req.body;
+        
+        if (!annotation_text || annotation_text.trim().length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Annotation text is required'
+            });
+        }
+        
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+        
+        const [result] = await connection.execute(
+            `INSERT INTO DataPointAnnotation (
+                dataset_id, 
+                user_id, 
+                row_index, 
+                column_name,
+                original_value,
+                annotation_text, 
+                annotation_type,
+                suggested_correction
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [datasetId, req.session.userId, row_index, column_name, original_value, annotation_text, annotation_type, suggested_correction]
+        );
+        
+        await connection.commit();
+        
+        res.json({
+            success: true,
+            message: 'Data annotation added successfully',
+            annotation_id: result.insertId
+        });
+        
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Error adding data annotation:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to add data annotation'
+        });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// Vote on an annotation
+app.post('/api/annotations/:id/vote', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authenticated'
+            });
+        }
+        
+        const annotationId = req.params.id;
+        const { vote_type = 'upvote' } = req.body;
+        
+        // Check if user already voted
+        const [existingVote] = await db.execute(
+            'SELECT * FROM AnnotationVote WHERE annotation_id = ? AND user_id = ?',
+            [annotationId, req.session.userId]
+        );
+        
+        if (existingVote.length > 0) {
+            // Update existing vote
+            await db.execute(
+                'UPDATE AnnotationVote SET vote_type = ? WHERE annotation_id = ? AND user_id = ?',
+                [vote_type, annotationId, req.session.userId]
+            );
+        } else {
+            // Insert new vote
+            await db.execute(
+                'INSERT INTO AnnotationVote (annotation_id, user_id, vote_type) VALUES (?, ?, ?)',
+                [annotationId, req.session.userId, vote_type]
+            );
+        }
+        
+        // Get updated vote counts
+        const [voteCounts] = await db.execute(`
+            SELECT 
+                COUNT(*) as total_votes,
+                SUM(CASE WHEN vote_type = 'upvote' THEN 1 ELSE 0 END) as upvotes,
+                SUM(CASE WHEN vote_type = 'downvote' THEN 1 ELSE 0 END) as downvotes
+            FROM AnnotationVote
+            WHERE annotation_id = ?
+        `, [annotationId]);
+        
+        res.json({
+            success: true,
+            message: 'Vote recorded',
+            votes: voteCounts[0]
+        });
+        
+    } catch (error) {
+        console.error('Error voting on annotation:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to record vote'
+        });
+    }
+});
+
+// Resolve an annotation (admin or annotation owner only)
+app.put('/api/annotations/:id/resolve', async (req, res) => {
+    let connection;
+    
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authenticated'
+            });
+        }
+        
+        const annotationId = req.params.id;
+        
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+        
+        // Check if user is admin or annotation owner
+        const [annotation] = await connection.execute(
+            `SELECT da.*, u.role 
+             FROM DatasetAnnotation da
+             JOIN User u ON da.user_id = u.user_id
+             WHERE da.annotation_id = ?`,
+            [annotationId]
+        );
+        
+        if (annotation.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Annotation not found'
+            });
+        }
+        
+        const isOwner = annotation[0].user_id === req.session.userId;
+        const isAdmin = annotation[0].role === 'admin';
+        
+        if (!isOwner && !isAdmin) {
+            return res.status(403).json({
+                success: false,
+                error: 'Unauthorized to resolve this annotation'
+            });
+        }
+        
+        await connection.execute(
+            'UPDATE DatasetAnnotation SET is_resolved = NOT is_resolved WHERE annotation_id = ?',
+            [annotationId]
+        );
+        
+        await connection.commit();
+        
+        res.json({
+            success: true,
+            message: 'Annotation resolution toggled'
+        });
+        
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Error resolving annotation:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to resolve annotation'
+        });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// Delete annotation
+app.delete('/api/annotations/:id', async (req, res) => {
+    let connection;
+    
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authenticated'
+            });
+        }
+        
+        const annotationId = req.params.id;
+        
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+        
+        // Check permissions
+        const [annotation] = await connection.execute(
+            `SELECT da.*, u.role 
+             FROM DatasetAnnotation da
+             JOIN User u ON da.user_id = u.user_id
+             WHERE da.annotation_id = ?`,
+            [annotationId]
+        );
+        
+        if (annotation.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Annotation not found'
+            });
+        }
+        
+        const isOwner = annotation[0].user_id === req.session.userId;
+        const isAdmin = annotation[0].role === 'admin';
+        
+        if (!isOwner && !isAdmin) {
+            return res.status(403).json({
+                success: false,
+                error: 'Unauthorized to delete this annotation'
+            });
+        }
+        
+        await connection.execute('DELETE FROM DatasetAnnotation WHERE annotation_id = ?', [annotationId]);
+        
+        await connection.commit();
+        
+        res.json({
+            success: true,
+            message: 'Annotation deleted successfully'
+        });
+        
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Error deleting annotation:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to delete annotation'
+        });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK' });
 });
