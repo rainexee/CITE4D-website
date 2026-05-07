@@ -505,35 +505,9 @@ function Dashboard() {
               <FolderOpen size={20} />
               <span>My Datasets</span>
             </button>
-            <button className="nav-item" onClick={() => navigate('/analytics')}>
-              <BarChart3 size={20} />
-              <span>Analytics</span>
-            </button>
           </div>
           
-          <div className="nav-section">
-            <h3>Community</h3>
-            <button className="nav-item">
-              <Users size={20} />
-              <span>Discussions</span>
-            </button>
-            <button className="nav-item">
-              <Award size={20} />
-              <span>Leaderboard</span>
-            </button>
-          </div>
           
-          <div className="nav-section">
-            <h3>Resources</h3>
-            <button className="nav-item">
-              <BookOpen size={20} />
-              <span>Tutorials</span>
-            </button>
-            <button className="nav-item">
-              <FileText size={20} />
-              <span>Documentation</span>
-            </button>
-          </div>
         </div>
         
         <div className="sidebar-footer">
