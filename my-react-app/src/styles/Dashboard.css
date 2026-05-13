@@ -911,4 +911,187 @@
     max-height: 60vh;
     overflow-y: auto;
   }
+
+  /* Task badge styling */
+.task-badge {
+  background-color: #ff4444;
+  color: white;
+  border-radius: 10px;
+  padding: 2px 6px;
+  font-size: 10px;
+  margin-left: 6px;
+}
+
+/* Modal tabs - ensure they're visible */
+.modal-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 0 24px;
+  background: white;
+}
+
+.modal-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.modal-tab:hover {
+  color: #333;
+  background: #f5f5f5;
+}
+
+.modal-tab.active {
+  color: #4CAF50;
+  border-bottom: 2px solid #4CAF50;
+}
+
+/* Large modal for better task display */
+.modal-content.large-modal {
+  max-width: 800px;
+  width: 90%;
+}
+
+/* Annotations Panel Styles */
+.annotations-container {
+  padding: 20px;
+}
+
+.annotations-filters {
+  margin-bottom: 20px;
+}
+
+.annotations-filters select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.consensus-section,
+.submissions-section {
+  margin-bottom: 30px;
+}
+
+.consensus-section h4,
+.submissions-section h4 {
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.consensus-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.consensus-table th,
+.consensus-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.consensus-table th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+.submissions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+}
+
+.submission-card,
+.contribution-card {
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 15px;
+}
+
+.submission-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.submission-status {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.submission-status.submitted {
+  background: #d4edda;
+  color: #155724;
+}
+
+.submission-status.pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.submission-details,
+.contribution-details {
+  font-size: 13px;
+}
+
+.submission-details div,
+.contribution-details div {
+  margin-bottom: 6px;
+}
+
+.contribution-card {
+  margin-bottom: 12px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-badge.submitted {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-badge.pending {
+  background: #ffeaa7;
+  color: #d63031;
+}
+
+.no-annotations {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.my-contributions-container {
+  padding: 20px;
+}
+
+.contributions-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
 }

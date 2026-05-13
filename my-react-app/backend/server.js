@@ -936,6 +936,623 @@ app.delete('/api/annotations/:id', async (req, res) => {
     }
 });
 
+// Get a student's assigned task (what they need to annotate)
+app.get('/api/student/task', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        if (users[0]?.role !== 'student') {
+            return res.status(403).json({ success: false, error: 'Student access only' });
+        }
+
+        // Find existing assignment
+        const [assignments] = await db.execute(`
+            SELECT 
+                sca.*,
+                dct.column_name,
+                dct.description as task_description,
+                d.title as dataset_title,
+                d.description as dataset_description,
+                d.file_name
+            FROM StudentCellAssignment sca
+            JOIN DatasetColumnTask dct ON sca.task_id = dct.task_id
+            JOIN Dataset d ON sca.dataset_id = d.dataset_id
+            WHERE sca.student_id = ? AND sca.status = 'pending'
+            LIMIT 1
+        `, [req.session.userId]);
+
+        if (assignments.length > 0) {
+            const assignment = assignments[0];
+            const rowData = await getRowFromCSV(assignment.file_name, assignment.row_index);
+            
+            return res.json({
+                success: true,
+                hasAssignment: true,
+                assignment: {
+                    id: assignment.assignment_id,
+                    datasetId: assignment.dataset_id,
+                    datasetTitle: assignment.dataset_title,
+                    datasetDescription: assignment.dataset_description,
+                    columnName: assignment.column_name,
+                    taskDescription: assignment.task_description,
+                    rowIndex: assignment.row_index,
+                    rowData: rowData,
+                    currentValue: assignment.original_value
+                }
+            });
+        }
+
+        // Create new assignment from any dataset
+        const newAssignment = await assignStudentToNextEmptyCell(req.session.userId);
+        
+        if (newAssignment) {
+            res.json({
+                success: true,
+                hasAssignment: true,
+                assignment: newAssignment
+            });
+        } else {
+            res.json({
+                success: true,
+                hasAssignment: false,
+                message: 'No pending tasks available. All rows may be complete!'
+            });
+        }
+
+    } catch (error) {
+        console.error('Error getting student task:', error);
+        res.status(500).json({ success: false, error: 'Failed to get task' });
+    }
+});
+
+
+// In server.js - Update the specific dataset task endpoint
+// Get student task for specific dataset
+app.get('/api/student/task/:datasetId', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+
+        // Check if user is student
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        if (users[0]?.role !== 'student') {
+            return res.status(403).json({ success: false, error: 'Student access only' });
+        }
+
+        const datasetId = req.params.datasetId;
+
+        // First, check for pending assignment for this specific dataset
+        const [assignments] = await db.execute(`
+            SELECT 
+                sca.*,
+                dct.column_name,
+                dct.description as task_description,
+                d.title as dataset_title,
+                d.description as dataset_description,
+                d.file_name
+            FROM StudentCellAssignment sca
+            JOIN DatasetColumnTask dct ON sca.task_id = dct.task_id
+            JOIN Dataset d ON sca.dataset_id = d.dataset_id
+            WHERE sca.student_id = ? 
+            AND sca.status = 'pending'
+            AND sca.dataset_id = ?
+            LIMIT 1
+        `, [req.session.userId, datasetId]);
+
+        if (assignments.length > 0) {
+            const assignment = assignments[0];
+            const rowData = await getRowFromCSV(assignment.file_name, assignment.row_index);
+            
+            return res.json({
+                success: true,
+                hasAssignment: true,
+                assignment: {
+                    id: assignment.assignment_id,
+                    datasetId: assignment.dataset_id,
+                    datasetTitle: assignment.dataset_title,
+                    datasetDescription: assignment.dataset_description,
+                    columnName: assignment.column_name,
+                    taskDescription: assignment.task_description,
+                    rowIndex: assignment.row_index,
+                    rowData: rowData,
+                    currentValue: assignment.original_value
+                }
+            });
+        }
+
+        // No pending assignment for this dataset, try to create one for THIS dataset
+        const newAssignment = await assignStudentToSpecificDataset(req.session.userId, datasetId);
+        
+        if (newAssignment) {
+            res.json({
+                success: true,
+                hasAssignment: true,
+                assignment: newAssignment
+            });
+        } else {
+            // Check if there's a task for this dataset at all
+            const [tasks] = await db.execute(`
+                SELECT * FROM DatasetColumnTask 
+                WHERE dataset_id = ? AND is_active = TRUE
+            `, [datasetId]);
+            
+            if (tasks.length === 0) {
+                res.json({
+                    success: true,
+                    hasAssignment: false,
+                    message: 'No annotation tasks available for this dataset yet. Check back later!'
+                });
+            } else {
+                res.json({
+                    success: true,
+                    hasAssignment: false,
+                    message: 'All tasks for this dataset are complete! Great job!'
+                });
+            }
+        }
+
+    } catch (error) {
+        console.error('Error getting student task:', error);
+        res.status(500).json({ success: false, error: 'Failed to get task' });
+    }
+});
+
+// New helper function to assign student to a specific dataset
+// Helper function to assign student to a specific dataset
+async function assignStudentToSpecificDataset(studentId, datasetId) {
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // Find active tasks for this specific dataset
+        const [tasks] = await connection.execute(`
+            SELECT dct.*, d.file_name, d.title, d.description
+            FROM DatasetColumnTask dct
+            JOIN Dataset d ON dct.dataset_id = d.dataset_id
+            WHERE dct.dataset_id = ? AND dct.is_active = TRUE
+            ORDER BY dct.created_at ASC
+            LIMIT 1
+        `, [datasetId]);
+
+        if (tasks.length === 0) return null;
+
+        const task = tasks[0];
+
+        // Count rows in CSV
+        const rowCount = await getCSVRowCount(task.file_name);
+        
+        for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+            // Check how many contributions this row already has
+            const [contributions] = await connection.execute(`
+                SELECT COUNT(*) as count
+                FROM StudentCellAssignment
+                WHERE dataset_id = ? AND task_id = ? AND row_index = ?
+                AND status = 'submitted'
+            `, [task.dataset_id, task.task_id, rowIndex]);
+
+            if (contributions[0].count < task.min_contributions) {
+                // Check if student already assigned to this row
+                const [existing] = await connection.execute(`
+                    SELECT * FROM StudentCellAssignment
+                    WHERE dataset_id = ? AND task_id = ? AND row_index = ? AND student_id = ?
+                `, [task.dataset_id, task.task_id, rowIndex, studentId]);
+
+                if (existing.length === 0) {
+                    // Get current value from CSV
+                    const rowData = await getRowFromCSV(task.file_name, rowIndex);
+                    const currentValue = rowData[task.column_name] || '';
+                    
+                    // Create assignment
+                    const [result] = await connection.execute(`
+                        INSERT INTO StudentCellAssignment 
+                        (dataset_id, task_id, student_id, row_index, original_value)
+                        VALUES (?, ?, ?, ?, ?)
+                    `, [task.dataset_id, task.task_id, studentId, rowIndex, currentValue]);
+                    
+                    await connection.commit();
+                    
+                    // Fetch the complete assignment data
+                    const [newAssignment] = await connection.execute(`
+                        SELECT 
+                            sca.*,
+                            dct.column_name,
+                            dct.description as task_description,
+                            d.title as dataset_title,
+                            d.description as dataset_description,
+                            d.file_name
+                        FROM StudentCellAssignment sca
+                        JOIN DatasetColumnTask dct ON sca.task_id = dct.task_id
+                        JOIN Dataset d ON sca.dataset_id = d.dataset_id
+                        WHERE sca.assignment_id = ?
+                    `, [result.insertId]);
+
+                    return {
+                        id: newAssignment[0].assignment_id,
+                        datasetId: newAssignment[0].dataset_id,
+                        datasetTitle: newAssignment[0].dataset_title,
+                        datasetDescription: newAssignment[0].dataset_description,
+                        columnName: newAssignment[0].column_name,
+                        taskDescription: newAssignment[0].task_description,
+                        rowIndex: newAssignment[0].row_index,
+                        rowData: rowData,
+                        currentValue: currentValue
+                    };
+                }
+            }
+        }
+        
+        await connection.commit();
+        return null;
+        
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+}
+
+// Helper function to assign student to next empty cell
+async function assignStudentToNextEmptyCell(studentId) {
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // Find active tasks - either for specific dataset or any
+        let taskQuery = `
+            SELECT dct.*, d.file_name, d.title, d.description
+            FROM DatasetColumnTask dct
+            JOIN Dataset d ON dct.dataset_id = d.dataset_id
+            WHERE dct.is_active = TRUE
+        `;
+        
+        const queryParams = [];
+        
+        if (specificDatasetId) {
+            taskQuery += ` AND dct.dataset_id = ?`;
+            queryParams.push(specificDatasetId);
+        }
+        
+        taskQuery += ` ORDER BY dct.created_at ASC LIMIT 1`;
+        
+        const [tasks] = await connection.execute(taskQuery, queryParams);
+
+        if (tasks.length === 0) return null;
+
+        const task = tasks[0];
+
+        // Count rows in CSV and find which rows need more contributions
+        const rowCount = await getCSVRowCount(task.file_name);
+        
+        for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+            // Check how many contributions this row already has
+            const [contributions] = await connection.query(`
+                SELECT COUNT(*) as count, 
+                       GROUP_CONCAT(submitted_value) as sub_values
+                FROM StudentCellAssignment
+                WHERE dataset_id = ? AND task_id = ? AND row_index = ?
+                AND status = 'submitted'
+            `, [task.dataset_id, task.task_id, rowIndex]);
+
+            if (contributions[0].count < task.min_contributions) {
+                // Check if student already assigned to this row
+                const [existing] = await connection.execute(`
+                    SELECT * FROM StudentCellAssignment
+                    WHERE dataset_id = ? AND task_id = ? AND row_index = ? AND student_id = ?
+                `, [task.dataset_id, task.task_id, rowIndex, studentId]);
+
+                if (existing.length === 0) {
+                    // Get current value from CSV
+                    const rowData = await getRowFromCSV(task.file_name, rowIndex);
+                    const currentValue = rowData[task.column_name] || '';
+                    
+                    // Create assignment
+                    const [result] = await connection.execute(`
+                        INSERT INTO StudentCellAssignment 
+                        (dataset_id, task_id, student_id, row_index, original_value)
+                        VALUES (?, ?, ?, ?, ?)
+                    `, [task.dataset_id, task.task_id, studentId, rowIndex, currentValue]);
+                    
+                    await connection.commit();
+                    
+                    // Fetch the complete assignment data
+                    const [newAssignment] = await connection.execute(`
+                        SELECT 
+                            sca.*,
+                            dct.column_name,
+                            dct.description as task_description,
+                            d.title as dataset_title,
+                            d.description as dataset_description,
+                            d.file_name
+                        FROM StudentCellAssignment sca
+                        JOIN DatasetColumnTask dct ON sca.task_id = dct.task_id
+                        JOIN Dataset d ON sca.dataset_id = d.dataset_id
+                        WHERE sca.assignment_id = ?
+                    `, [result.insertId]);
+
+                    return {
+                        id: newAssignment[0].assignment_id,
+                        datasetId: newAssignment[0].dataset_id,
+                        datasetTitle: newAssignment[0].dataset_title,
+                        datasetDescription: newAssignment[0].dataset_description,
+                        columnName: newAssignment[0].column_name,
+                        taskDescription: newAssignment[0].task_description,
+                        rowIndex: newAssignment[0].row_index,
+                        rowData: rowData,
+                        currentValue: currentValue
+                    };
+                }
+            }
+        }
+        
+        await connection.commit();
+        return null;
+        
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+}
+
+// Helper: Get row count from CSV
+async function getCSVRowCount(fileName) {
+    const filePath = path.join(__dirname, '../uploads/datasets', fileName);
+    const fileContent = await fs.readFile(filePath, 'utf-8');
+    const lines = fileContent.split('\n');
+    return lines.length - 1; // Subtract header
+}
+
+// Helper: Get specific row from CSV
+async function getRowFromCSV(fileName, rowIndex) {
+    const filePath = path.join(__dirname, '../uploads/datasets', fileName);
+    const fileContent = await fs.readFile(filePath, 'utf-8');
+    const lines = fileContent.split('\n');
+    
+    if (rowIndex + 1 >= lines.length) return {};
+    
+    const headers = lines[0].split(',').map(h => h.trim().replace(/["']/g, ''));
+    const values = lines[rowIndex + 1].split(',').map(v => v.trim().replace(/["']/g, ''));
+    
+    const row = {};
+    headers.forEach((header, idx) => {
+        row[header] = values[idx] || '';
+    });
+    
+    return row;
+}
+
+// Submit student's annotation
+app.post('/api/student/submit', async (req, res) => {
+    const connection = await db.getConnection();
+    
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+
+        const { assignmentId, submittedValue } = req.body;
+        
+        if (!submittedValue || submittedValue.trim().length === 0) {
+            return res.status(400).json({ success: false, error: 'Please provide a value' });
+        }
+        
+        await connection.beginTransaction();
+        
+        // Get assignment details
+        const [assignments] = await connection.execute(`
+            SELECT sca.*, dct.min_contributions, d.file_name, dct.column_name, dct.task_id
+            FROM StudentCellAssignment sca
+            JOIN DatasetColumnTask dct ON sca.task_id = dct.task_id
+            JOIN Dataset d ON sca.dataset_id = d.dataset_id
+            WHERE sca.assignment_id = ? AND sca.student_id = ?
+        `, [assignmentId, req.session.userId]);
+        
+        if (assignments.length === 0) {
+            return res.status(404).json({ success: false, error: 'Assignment not found' });
+        }
+        
+        const assignment = assignments[0];
+        
+        // Update assignment
+        await connection.execute(`
+            UPDATE StudentCellAssignment 
+            SET submitted_value = ?, status = 'submitted', submitted_at = NOW()
+            WHERE assignment_id = ?
+        `, [submittedValue, assignmentId]);
+        
+        // Check if this row now has enough contributions
+        const [contributions] = await connection.execute(`
+            SELECT submitted_value, COUNT(*) as count
+            FROM StudentCellAssignment
+            WHERE dataset_id = ? AND task_id = ? AND row_index = ? AND status = 'submitted'
+            GROUP BY submitted_value
+        `, [assignment.dataset_id, assignment.task_id, assignment.row_index]);
+        
+        if (contributions.length >= assignment.min_contributions) {
+            // Calculate consensus (simple majority for now)
+            const valueCounts = {};
+            contributions.forEach(c => {
+                valueCounts[c.submitted_value] = (valueCounts[c.submitted_value] || 0) + 1;
+            });
+            
+            let consensusValue = null;
+            let maxCount = 0;
+            for (const [value, count] of Object.entries(valueCounts)) {
+                if (count > maxCount) {
+                    maxCount = count;
+                    consensusValue = value;
+                }
+            }
+            
+            // Update CSV file
+            const filePath = path.join(__dirname, '../uploads/datasets', assignment.file_name);
+            let fileContent = await fs.readFile(filePath, 'utf-8');
+            const lines = fileContent.split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/["']/g, ''));
+            
+            // Find column index
+            const columnIndex = headers.findIndex(h => h === assignment.column_name);
+            
+            if (columnIndex !== -1) {
+                const rowValues = lines[assignment.row_index + 1].split(',');
+                rowValues[columnIndex] = `"${consensusValue}"`; // Quote the value
+                lines[assignment.row_index + 1] = rowValues.join(',');
+                
+                await fs.writeFile(filePath, lines.join('\n'), 'utf-8');
+                
+                // Mark as resolved
+                await connection.execute(`
+                    INSERT INTO CellConsensus 
+                    (dataset_id, task_id, row_index, consensus_value, contribution_count, is_resolved, resolved_at)
+                    VALUES (?, ?, ?, ?, ?, TRUE, NOW())
+                    ON DUPLICATE KEY UPDATE
+                    consensus_value = VALUES(consensus_value),
+                    is_resolved = TRUE,
+                    resolved_at = NOW()
+                `, [assignment.dataset_id, assignment.task_id, assignment.row_index, consensusValue, contributions.length]);
+            }
+        }
+        
+        await connection.commit();
+        
+        // Try to assign next task
+        const nextAssignment = await assignStudentToSpecificDataset(req.session.userId, assignment.dataset_id);
+
+        res.json({
+            success: true,
+            message: 'Annotation submitted successfully!',
+            nextAssignment: nextAssignment || null
+        });
+        
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error submitting annotation:', error);
+        res.status(500).json({ success: false, error: 'Failed to submit annotation' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Admin endpoint to create a new column task
+app.post('/api/admin/dataset/:id/column-task', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        
+        // Check admin role
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        if (users[0]?.role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Admin access required' });
+        }
+        
+        const datasetId = req.params.id;
+        const { columnName, description, minContributions = 3 } = req.body;
+        
+        if (!columnName) {
+            return res.status(400).json({ success: false, error: 'Column name is required' });
+        }
+        
+        // Verify column exists in the dataset
+        const [datasets] = await db.execute('SELECT columns FROM Dataset WHERE dataset_id = ?', [datasetId]);
+        if (datasets.length === 0) {
+            return res.status(404).json({ success: false, error: 'Dataset not found' });
+        }
+        
+        const columns = datasets[0].columns ? datasets[0].columns.split(',') : [];
+        if (!columns.includes(columnName)) {
+            return res.status(400).json({ success: false, error: 'Column not found in dataset' });
+        }
+        
+        // Create task
+        const [result] = await db.execute(`
+            INSERT INTO DatasetColumnTask (dataset_id, column_name, description, min_contributions)
+            VALUES (?, ?, ?, ?)
+        `, [datasetId, columnName, description || `Help fill in missing data for ${columnName}`, minContributions]);
+        
+        res.json({
+            success: true,
+            message: 'Column task created successfully',
+            taskId: result.insertId
+        });
+        
+    } catch (error) {
+        console.error('Error creating column task:', error);
+        res.status(500).json({ success: false, error: 'Failed to create task' });
+    }
+});
+
+// Get all annotations/submissions for a dataset (Admin view)
+app.get('/api/datasets/:id/annotations/all', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+
+        // Check if user is admin
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        const isAdmin = users[0]?.role === 'admin';
+
+        const datasetId = req.params.id;
+
+        let query = `
+            SELECT 
+                sca.*,
+                u.name as student_name,
+                u.email as student_email,
+                dct.column_name,
+                dct.description as task_description
+            FROM StudentCellAssignment sca
+            JOIN User u ON sca.student_id = u.user_id
+            JOIN DatasetColumnTask dct ON sca.task_id = dct.task_id
+            WHERE sca.dataset_id = ?
+        `;
+
+        // If not admin, only show student's own submissions
+        if (!isAdmin) {
+            query += ` AND sca.student_id = ?`;
+            const [annotations] = await db.execute(query, [datasetId, req.session.userId]);
+            return res.json({ success: true, annotations, isAdmin: false });
+        }
+
+        const [annotations] = await db.execute(query, [datasetId]);
+        res.json({ success: true, annotations, isAdmin: true });
+
+    } catch (error) {
+        console.error('Error fetching annotations:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch annotations' });
+    }
+});
+
+// Get consensus results for a dataset (what was actually written to CSV)
+app.get('/api/datasets/:id/consensus', async (req, res) => {
+    try {
+        const datasetId = req.params.id;
+        
+        const [consensus] = await db.execute(`
+            SELECT 
+                cc.*,
+                dct.column_name
+            FROM CellConsensus cc
+            JOIN DatasetColumnTask dct ON cc.task_id = dct.task_id
+            WHERE cc.dataset_id = ?
+            ORDER BY cc.row_index ASC
+        `, [datasetId]);
+
+        res.json({ success: true, consensus });
+
+    } catch (error) {
+        console.error('Error fetching consensus:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch consensus' });
+    }
+});
+
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK' });
 });

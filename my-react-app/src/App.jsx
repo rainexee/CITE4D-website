@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage';
 import LandingPage from './pages/LandingPage';
 import NewDataset from './pages/NewDataset';
 import AnnotationsPanel from './pages/AnnotationsPanel';
+import StudentAnnotationView from './pages/StudentAnnotationView';
 
 
 function App() {
@@ -75,6 +76,7 @@ function App() {
       <Route path="/dashboard" element={<Dashboard loginWithGoogle={loginWithGoogle} />} />
       <Route path="/new-dataset" element={<NewDataset loginWithGoogle={loginWithGoogle} />} />
       <Route path="/annotation" element={<AnnotationsPanel loginWithGoogle={loginWithGoogle} />} />
+      <Route path="/student/task" element={<AnnotationsPanel />} />
       {/* <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/reviews" element={<Reviews />} />
       <Route path="/about" element={<About />} /> */}

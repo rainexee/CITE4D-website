@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS User(
 
 );
 
+UPDATE User SET role = 'student' WHERE user_id = 1;
 UPDATE User SET role = 'admin' WHERE user_id = 1;
+
+SELECT * From User;
 
 CREATE TABLE IF NOT EXISTS Dataset(
     dataset_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -66,27 +69,9 @@ CREATE TABLE IF NOT EXISTS DatasetAnnotation (
     INDEX idx_parent (parent_annotation_id)
 );
 
+
 -- Table for row/column specific annotations
-CREATE TABLE IF NOT EXISTS DataPointAnnotation (
-    data_annotation_id INT PRIMARY KEY AUTO_INCREMENT,
-    dataset_id INT NOT NULL,
-    user_id INT NOT NULL,
-    row_index INT NULL, -- row number (0-indexed)
-    column_name VARCHAR(255) NULL,
-    original_value TEXT NULL,
-    annotation_text TEXT NOT NULL,
-    annotation_type ENUM('error', 'missing', 'outlier', 'correction', 'note', 'question') DEFAULT 'note',
-    suggested_correction TEXT NULL,
-    is_verified BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE,
-    INDEX idx_dataset (dataset_id),
-    INDEX idx_user (user_id),
-    INDEX idx_row (row_index),
-    INDEX idx_column (column_name)
-);
+
 
 -- Table for annotation votes/likes
 CREATE TABLE IF NOT EXISTS AnnotationVote (
@@ -99,6 +84,51 @@ CREATE TABLE IF NOT EXISTS AnnotationVote (
     FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE,
     UNIQUE KEY unique_vote (annotation_id, user_id),
     INDEX idx_annotation (annotation_id)
+);
+
+CREATE TABLE IF NOT EXISTS DatasetColumnTask (
+    task_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    column_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    min_contributions INT DEFAULT 3, -- Number of students needed per row
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    INDEX idx_dataset (dataset_id)
+);
+
+CREATE TABLE IF NOT EXISTS StudentCellAssignment (
+    assignment_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    task_id INT NOT NULL,
+    student_id INT NOT NULL,
+    row_index INT NOT NULL,
+    original_value TEXT, -- Current value (if any)
+    submitted_value TEXT,
+    status ENUM('pending', 'submitted', 'verified') DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    submitted_at TIMESTAMP NULL,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES DatasetColumnTask(task_id) ON DELETE CASCADE,
+    FOREIGN KEY (student_id) REFERENCES User(user_id) ON DELETE CASCADE,
+    INDEX idx_student (student_id),
+    INDEX idx_row (row_index),
+    UNIQUE KEY unique_assignment (dataset_id, task_id, student_id, row_index)
+);
+
+CREATE TABLE IF NOT EXISTS CellConsensus (
+    consensus_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    task_id INT NOT NULL,
+    row_index INT NOT NULL,
+    consensus_value TEXT,
+    contribution_count INT DEFAULT 0,
+    is_resolved BOOLEAN DEFAULT FALSE,
+    resolved_at TIMESTAMP NULL,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES DatasetColumnTask(task_id) ON DELETE CASCADE,
+    UNIQUE KEY unique_cell (dataset_id, task_id, row_index)
 );
 
 

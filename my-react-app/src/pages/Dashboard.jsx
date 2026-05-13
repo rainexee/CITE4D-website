@@ -1,42 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Database,
-  Search,
-  Filter,
-  TrendingUp,
-  Users,
-  Download,
-  Eye,
-  ThumbsUp,
-  MessageSquare,
-  Star,
-  ChevronDown,
-  Grid,
-  List,
-  BarChart3,
-  BookOpen,
-  Award,
-  Clock,
-  User,
-  LogOut,
-  Settings,
-  Bell,
-  Menu,
-  X,
-  Plus,
-  ExternalLink,
-  Calendar,
-  Activity,
-  Flame,
-  Sparkles,
-  FolderOpen,
-  FileText,
-  Mail,
-  MapPin
+  Database, Search, Filter, TrendingUp, Users, Download, Eye, ThumbsUp,
+  MessageSquare, Star, ChevronDown, Grid, List, BarChart3, BookOpen,
+  Award, Clock, User, LogOut, Settings, Bell, Menu, X, Plus, ExternalLink,
+  Calendar, Activity, Flame, Sparkles, FolderOpen, FileText, Mail, MapPin,
+  Save, CheckCircle, AlertCircle, HelpCircle, ListChecks, Users as UsersIcon,
+  CheckSquare
 } from 'lucide-react';
 import '../styles/Dashboard.css';
-import AnnotationsPanel from './AnnotationsPanel'; // ADD THIS LINE
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -45,7 +17,7 @@ function Dashboard() {
   const [filteredDatasets, setFilteredDatasets] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [viewMode, setViewMode] = useState('grid');
   const [isLoading, setIsLoading] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -53,9 +25,24 @@ function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-  const [activeModalTab, setActiveModalTab] = useState('preview');
+  
+  // Student task states
+  const [studentTask, setStudentTask] = useState(null);
+  const [submittedValue, setSubmittedValue] = useState('');
+  const [isSubmittingTask, setIsSubmittingTask] = useState(false);
+  const [taskMessage, setTaskMessage] = useState(null);
+  const [activeTab, setActiveTab] = useState('preview');
+  
+  // Track current dataset ID to prevent race conditions
+  const currentTaskDatasetIdRef = useRef(null);
+  
+  // Annotations
+  const [annotations, setAnnotations] = useState([]);
+  const [consensus, setConsensus] = useState([]);
+  const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(false);
+  const [selectedStudentFilter, setSelectedStudentFilter] = useState('all');
 
-  // Sample dataset categories
+  // Categories
   const categories = [
     { id: 'all', name: 'All Datasets', icon: <Database size={18} />, count: 0 },
     { id: 'education', name: 'Education', icon: <BookOpen size={18} />, count: 0 },
@@ -269,19 +256,139 @@ function Dashboard() {
     }
   ];
 
+  const loadAnnotations = async (datasetId) => {
+    setIsLoadingAnnotations(true);
+    try {
+      const response = await fetch(`/api/datasets/${datasetId}/annotations/all`, {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setAnnotations(data.annotations);
+        
+        // Load consensus results as well
+        const consensusResponse = await fetch(`/api/datasets/${datasetId}/consensus`, {
+          credentials: 'include'
+        });
+        const consensusData = await consensusResponse.json();
+        if (consensusData.success) {
+          setConsensus(consensusData.consensus);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading annotations:', error);
+    } finally {
+      setIsLoadingAnnotations(false);
+    }
+  };
+  
+  // CreateColumnTask component for admin users
+  function CreateColumnTask({ datasetId, columns, onTaskCreated }) {
+    const [selectedColumn, setSelectedColumn] = useState('');
+    const [description, setDescription] = useState('');
+    const [minContributions, setMinContributions] = useState(3);
+    const [isCreating, setIsCreating] = useState(false);
+
+    const handleCreateTask = async () => {
+      if (!selectedColumn) {
+        alert('Please select a column');
+        return;
+      }
+
+      setIsCreating(true);
+      try {
+        const response = await fetch(`/api/admin/dataset/${datasetId}/column-task`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            columnName: selectedColumn,
+            description: description,
+            minContributions: minContributions
+          })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          alert('Task created successfully!');
+          onTaskCreated && onTaskCreated();
+          setSelectedColumn('');
+          setDescription('');
+        } else {
+          alert(data.error || 'Failed to create task');
+        }
+      } catch (error) {
+        console.error('Error creating task:', error);
+        alert('An error occurred');
+      } finally {
+        setIsCreating(false);
+      }
+    };
+
+    return (
+      <div className="create-task-form">
+        <h3>Create Student Annotation Task</h3>
+        <p className="task-help">Students will be asked to fill in missing values for the selected column.</p>
+        <select value={selectedColumn} onChange={(e) => setSelectedColumn(e.target.value)}>
+          <option value="">Select a column to fill</option>
+          {columns.map(col => (
+            <option key={col} value={col}>{col}</option>
+          ))}
+        </select>
+        <textarea
+          placeholder="Instructions for students (optional)"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows="3"
+        />
+        <label className="contributions-label">
+          <span>Students needed per row:</span>
+          <input
+            type="number"
+            min="1"
+            max="10"
+            value={minContributions}
+            onChange={(e) => setMinContributions(parseInt(e.target.value))}
+          />
+          <small>How many students should annotate each cell?</small>
+        </label>
+        <button onClick={handleCreateTask} disabled={isCreating} className="create-task-btn">
+          {isCreating ? 'Creating...' : 'Create Annotation Task'}
+        </button>
+      </div>
+    );
+  }
+
+  // Effects
   useEffect(() => {
     checkUserSession();
     loadDatasets();
   }, []);
+
+  useEffect(() => {
+    if (selectedDataset && user?.role === 'admin' && showModal) {
+      loadAnnotations(selectedDataset.id);
+    }
+  }, [selectedDataset, user?.role, showModal]);
+
+  useEffect(() => {
+    if (!showModal) {
+      // Reset all task-related state when modal closes
+      setStudentTask(null);
+      setActiveTab('preview');
+      setTaskMessage(null);
+      setSubmittedValue('');
+      currentTaskDatasetIdRef.current = null;
+    }
+  }, [showModal]);
 
   const checkUserSession = async () => {
     try {
       const response = await fetch('/api/auth/user', {
         credentials: 'include',
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       
       if (response.ok) {
@@ -289,7 +396,6 @@ function Dashboard() {
         setUser(userData);
         console.log('User session found:', userData);
       } else {
-        // Redirect to home if not authenticated
         navigate('/');
       }
     } catch (error) {
@@ -298,67 +404,152 @@ function Dashboard() {
     }
   };
 
+  const loadStudentTaskForDataset = async (datasetId) => {
+      if (user?.role !== 'student') return;
+      
+      // Track which dataset we're loading tasks for
+      const currentDatasetId = datasetId;
+      currentTaskDatasetIdRef.current = datasetId;
+      
+      try {
+          console.log(`Loading task for dataset ${datasetId}...`);
+          const response = await fetch(`/api/student/task/${datasetId}`, { 
+              credentials: 'include' 
+          });
+          const data = await response.json();
+          
+          // Check if we're still on the same dataset (prevent race conditions)
+          if (currentTaskDatasetIdRef.current !== currentDatasetId) {
+              console.log(`Dataset changed from ${currentDatasetId} to ${currentTaskDatasetIdRef.current}, ignoring response`);
+              return;
+          }
+          
+          // Log the response for debugging
+          console.log(`Task response for dataset ${datasetId}:`, data);
+          
+          if (data.success && data.hasAssignment && data.assignment && data.assignment.rowData) {
+              console.log(`Task loaded successfully for dataset ${datasetId}:`, data.assignment);
+              setStudentTask(data.assignment);
+              setActiveTab('task');
+              return; // Exit early, task found
+          } else {
+              console.log(`No active task for dataset ${datasetId}`);
+              setStudentTask(null);
+              // Only change tab if we're not already on the task tab AND we have other tabs to show
+              if (activeTab === 'task') {
+                  setActiveTab('preview');
+              }
+          }
+      } catch (error) {
+          console.error(`Error loading student task for dataset ${datasetId}:`, error);
+          setStudentTask(null);
+      }
+  };
+
+  const handleSubmitStudentTask = async () => {
+    if (!submittedValue.trim()) {
+      setTaskMessage({ type: 'error', text: 'Please enter a value before submitting' });
+      return;
+    }
+
+    setIsSubmittingTask(true);
+    try {
+      const response = await fetch('/api/student/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          assignmentId: studentTask.id,
+          submittedValue: submittedValue.trim()
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setTaskMessage({ type: 'success', text: data.message });
+        setSubmittedValue('');
+        
+        setTimeout(async () => {
+          setTaskMessage(null);
+          if (data.nextAssignment && data.nextAssignment.datasetId === selectedDataset?.id) {
+            // Load next assignment for the same dataset
+            setStudentTask(data.nextAssignment);
+          } else {
+            // No more tasks for this dataset
+            setStudentTask(null);
+            setTaskMessage({ type: 'info', text: 'Great job! No more tasks for this dataset.' });
+            setTimeout(() => setTaskMessage(null), 3000);
+            // Reload to see if there are any pending tasks left
+            if (selectedDataset) {
+              await loadStudentTaskForDataset(selectedDataset.id);
+            }
+          }
+        }, 2000);
+      } else {
+        setTaskMessage({ type: 'error', text: data.error || 'Failed to submit' });
+      }
+    } catch (error) {
+      console.error('Error submitting:', error);
+      setTaskMessage({ type: 'error', text: 'An error occurred. Please try again.' });
+    } finally {
+      setIsSubmittingTask(false);
+    }
+  };
+
   const loadDatasets = async () => {
     setIsLoading(true);
     try {
-        const response = await fetch('/api/datasets?limit=20', {
-            credentials: 'include'
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.datasets) {
-                // Transform API data to match component expectations
-                const transformedDatasets = data.datasets.map(dataset => ({
-                    id: dataset.dataset_id,
-                    title: dataset.title,
-                    description: dataset.description,
-                    category: dataset.category,
-                    views: dataset.views || 0,
-                    likes: dataset.likes || 0,
-                    downloads: dataset.downloads || 0,
-                    reviews: dataset.reviews || 0,
-                    tags: dataset.tags || [],
-                    author: dataset.author || dataset.uploader_name,
-                    dateAdded: dataset.created_at ? dataset.created_at.split('T')[0] : '',
-                    lastUpdated: dataset.updated_at ? dataset.updated_at.split('T')[0] : '',
-                    size: dataset.size || 'N/A',
-                    format: dataset.format || 'CSV',
-                    columns: dataset.columns || [],
-                    sampleRows: dataset.sampleRows || [],
-                    preview: true
-                }));
-                setDatasets(transformedDatasets);
-                setFilteredDatasets(transformedDatasets);
-            } else {
-                // Fallback to sample data if no datasets
-                setDatasets(sampleDatasets);
-                setFilteredDatasets(sampleDatasets);
-            }
+      const response = await fetch('/api/datasets?limit=20', { credentials: 'include' });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.datasets) {
+          const transformedDatasets = data.datasets.map(dataset => ({
+            id: dataset.dataset_id,
+            title: dataset.title,
+            description: dataset.description,
+            category: dataset.category,
+            views: dataset.views || 0,
+            likes: dataset.likes || 0,
+            downloads: dataset.downloads || 0,
+            reviews: dataset.reviews || 0,
+            tags: dataset.tags || [],
+            author: dataset.author || dataset.uploader_name,
+            dateAdded: dataset.created_at ? dataset.created_at.split('T')[0] : '',
+            lastUpdated: dataset.updated_at ? dataset.updated_at.split('T')[0] : '',
+            size: dataset.size || 'N/A',
+            format: dataset.format || 'CSV',
+            columns: dataset.columns || [],
+            sampleRows: dataset.sampleRows || [],
+            preview: true
+          }));
+          setDatasets(transformedDatasets);
+          setFilteredDatasets(transformedDatasets);
         } else {
-            // Fallback to sample data if API fails
-            console.log('Using sample data');
-            setDatasets(sampleDatasets);
-            setFilteredDatasets(sampleDatasets);
+          setDatasets(sampleDatasets);
+          setFilteredDatasets(sampleDatasets);
         }
-    } catch (error) {
-        console.error('Error loading datasets:', error);
-        // Fallback to sample data
+      } else {
+        console.log('Using sample data');
         setDatasets(sampleDatasets);
         setFilteredDatasets(sampleDatasets);
+      }
+    } catch (error) {
+      console.error('Error loading datasets:', error);
+      setDatasets(sampleDatasets);
+      setFilteredDatasets(sampleDatasets);
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
-};
+  };
 
   const handleLogout = async () => {
     try {
       const response = await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       
       if (response.ok) {
@@ -399,12 +590,17 @@ function Dashboard() {
   };
 
   const handleViewDataset = async (dataset) => {
+    // Reset state for new dataset
     setSelectedDataset(dataset);
     setShowModal(true);
     setPreviewData(null);
     setIsLoadingPreview(true);
+    setTaskMessage(null);
+    setSubmittedValue('');
+    setStudentTask(null);
+    setActiveTab('preview');
     
-    // Try to fetch real preview data from API
+    // Load preview data
     try {
       const response = await fetch(`/api/datasets/${dataset.id}/preview`, {
         credentials: 'include'
@@ -415,14 +611,12 @@ function Dashboard() {
         if (data.success && data.preview) {
           setPreviewData(data.preview);
         } else if (dataset.sampleRows) {
-          // Use sample rows if available
           setPreviewData({
             columns: dataset.columns,
             rows: dataset.sampleRows
           });
         }
       } else if (dataset.sampleRows) {
-        // Use sample rows from the dataset
         setPreviewData({
           columns: dataset.columns,
           rows: dataset.sampleRows
@@ -439,39 +633,44 @@ function Dashboard() {
     } finally {
       setIsLoadingPreview(false);
     }
+    
+    // Load student task for this dataset (if student)
+    if (user?.role === 'student') {
+      await loadStudentTaskForDataset(dataset.id);
+    }
+
+    // Load annotations (if admin)
+    if (user?.role === 'admin') {
+      await loadAnnotations(dataset.id);
+    }
   };
 
   const handleDownloadDataset = async (dataset) => {
     try {
-        const response = await fetch(`/api/datasets/${dataset.id}/download`, {
-            credentials: 'include'
-        });
-        
-        if (response.ok) {
-            // Create a blob from the response
-            const blob = await response.blob();
-            
-            // Create download link
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            
-            // Set filename
-            const filename = `${dataset.title}.${dataset.format.toLowerCase()}`;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        } else {
-            const error = await response.json();
-            alert(error.error || 'Failed to download dataset. Please try again.');
-        }
+      const response = await fetch(`/api/datasets/${dataset.id}/download`, {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const filename = `${dataset.title}.${dataset.format.toLowerCase()}`;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Failed to download dataset. Please try again.');
+      }
     } catch (error) {
-        console.error('Download error:', error);
-        alert('Error downloading dataset. Please try again.');
+      console.error('Download error:', error);
+      alert('Error downloading dataset. Please try again.');
     }
-};
+  };
 
   if (isLoading) {
     return (
@@ -508,8 +707,6 @@ function Dashboard() {
               <span>My Datasets</span>
             </button>
           </div>
-          
-          
         </div>
         
         <div className="sidebar-footer">
@@ -564,9 +761,7 @@ function Dashboard() {
                 <Plus size={18} />
                 <span>New Dataset</span>
               </button>
-
-              )
-            }
+            )}
             
             <div className="user-menu-wrapper">
               <div 
@@ -763,10 +958,10 @@ function Dashboard() {
         </div>
       </main>
       
-      {/* Dataset Preview Modal */}
+      {/* Dataset Preview Modal with Tabs */}
       {showModal && selectedDataset && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content large-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{selectedDataset.title}</h2>
               <button className="close-modal" onClick={() => setShowModal(false)}>
@@ -774,27 +969,54 @@ function Dashboard() {
               </button>
             </div>
             
-            {/* ADD THIS: Tab Navigation */}
+            {/* Tab Navigation */}
             <div className="modal-tabs">
               <button 
-                className={`modal-tab ${activeModalTab === 'preview' ? 'active' : ''}`}
-                onClick={() => setActiveModalTab('preview')}
+                className={`modal-tab ${activeTab === 'preview' ? 'active' : ''}`}
+                onClick={() => setActiveTab('preview')}
               >
                 <Eye size={16} />
                 Data Preview
               </button>
-              <button 
-                className={`modal-tab ${activeModalTab === 'annotations' ? 'active' : ''}`}
-                onClick={() => setActiveModalTab('annotations')}
-              >
-                <MessageSquare size={16} />
-                Discussion & Annotations
-              </button>
+              
+              {/* Show task tab only if there's an active task with rowData */}
+              {user?.role === 'student' && studentTask && studentTask.rowData && (
+                <button 
+                  className={`modal-tab ${activeTab === 'task' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('task')}
+                >
+                  <HelpCircle size={16} />
+                  Annotation Task
+                  <span className="task-badge">!</span>
+                </button>
+              )}
+
+              {user?.role === 'admin' && (
+                <button 
+                  className={`modal-tab ${activeTab === 'annotations' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('annotations')}
+                >
+                  <ListChecks size={16} />
+                  Annotations & Submissions
+                  {annotations.length > 0 && <span className="task-badge">{annotations.length}</span>}
+                </button>
+              )}
+              
+              {/* Show My Contributions only if there are annotations AND no active task */}
+              {user?.role === 'student' && annotations.length > 0 && !studentTask && (
+                <button 
+                  className={`modal-tab ${activeTab === 'myContributions' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('myContributions')}
+                >
+                  <CheckSquare size={16} />
+                  My Contributions ({annotations.length})
+                </button>
+              )}
             </div>
             
             <div className="modal-body">
-              {/* Tab 1: Data Preview Content */}
-              {activeModalTab === 'preview' && (
+              {/* Tab 1: Data Preview */}
+              {activeTab === 'preview' && (
                 <div className="dataset-info">
                   <div className="info-section">
                     <h3>Description</h3>
@@ -827,6 +1049,21 @@ function Dashboard() {
                       ))}
                     </div>
                   </div>
+                  
+                  {/* Admin Task Creation Section */}
+                  {user?.role === 'admin' && (
+                    <div className="info-section admin-task-section">
+                      <h3>Create Student Annotation Task</h3>
+                      <CreateColumnTask 
+                        datasetId={selectedDataset.id}
+                        columns={selectedDataset.columns}
+                        onTaskCreated={() => {
+                          // Optional: refresh or show success message
+                          loadAnnotations(selectedDataset.id);
+                        }}
+                      />
+                    </div>
+                  )}
                   
                   {selectedDataset.preview && (
                     <div className="info-section">
@@ -882,16 +1119,201 @@ function Dashboard() {
                 </div>
               )}
               
-              {/* Tab 2: Annotations Panel Content - PUT THIS HERE */}
-              {activeModalTab === 'annotations' && (
-                <AnnotationsPanel 
-                  datasetId={selectedDataset.id}
-                  user={user}
-                  onAnnotationAdded={() => {
-                    // Optional: Refresh any counts or show notification
-                    console.log('Annotation added!');
-                  }}
-                />
+              {/* Tab 2: Student Annotation Task */}
+              {activeTab === 'task' && studentTask && user?.role === 'student' && (
+                <div className="student-task-container">
+                  {taskMessage && (
+                    <div className={`task-message ${taskMessage.type}`}>
+                      {taskMessage.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+                      <span>{taskMessage.text}</span>
+                    </div>
+                  )}
+                  
+                  <div className="task-info-section">
+                    <div className="task-details">
+                      <div className="detail-card">
+                        <h4>🎯 Your Task</h4>
+                        <p><strong>Column to fill:</strong> {studentTask.columnName}</p>
+                        <p><strong>Instructions:</strong> {studentTask.taskDescription || `Please provide a value for the ${studentTask.columnName} column based on the other data in this row.`}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="task-data-section">
+                    <h3>📊 Current Row Data</h3>
+                    <div className="data-preview">
+                      <table className="row-data-table">
+                        <thead>
+                          <tr>
+                            <th>Column</th>
+                            <th>Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {studentTask.rowData && Object.entries(studentTask.rowData).map(([key, value]) => (
+                            <tr key={key} className={key === studentTask.columnName ? 'target-column' : ''}>
+                              <td className="column-name">{key}</td>
+                              <td className="column-value">
+                                {key === studentTask.columnName ? (
+                                  <span className="empty-value">[Empty - Needs your input]</span>
+                                ) : (
+                                  value || '—'
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="task-input-section">
+                    <h3>✏️ Enter Value for {studentTask.columnName}</h3>
+                    <label htmlFor="annotationValue">
+                      Based on the other data in this row, what should go in the <strong>{studentTask.columnName}</strong> column?
+                    </label>
+                    <textarea
+                      id="annotationValue"
+                      value={submittedValue}
+                      onChange={(e) => setSubmittedValue(e.target.value)}
+                      placeholder="Enter your annotation here..."
+                      rows={4}
+                      disabled={isSubmittingTask}
+                    />
+                    <div className="task-help-text">
+                      <small>Your input will be combined with 2 other students to determine the final value.</small>
+                    </div>
+                    <div className="task-actions">
+                      <button 
+                        className="btn-primary"
+                        onClick={handleSubmitStudentTask}
+                        disabled={isSubmittingTask}
+                      >
+                        <Save size={16} />
+                        {isSubmittingTask ? 'Submitting...' : 'Submit Annotation'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Annotations View (Admin) */}
+              {activeTab === 'annotations' && user?.role === 'admin' && (
+                <div className="annotations-container">
+                  <h3>Student Annotations & Submissions</h3>
+                  
+                  {isLoadingAnnotations ? (
+                    <div className="loading-spinner-small"></div>
+                  ) : annotations.length === 0 ? (
+                    <div className="no-annotations">
+                      <p>No annotations have been submitted for this dataset yet.</p>
+                    </div>
+                  ) : (
+                    <div className="annotations-list">
+                      {/* Filter controls */}
+                      <div className="annotations-filters">
+                        <select 
+                          value={selectedStudentFilter} 
+                          onChange={(e) => setSelectedStudentFilter(e.target.value)}
+                        >
+                          <option value="all">All Students</option>
+                          {[...new Map(annotations.map(a => [a.student_id, a])).values()].map(student => (
+                            <option key={student.student_id} value={student.student_id}>
+                              {student.student_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      {/* Consensus Results Section */}
+                      {consensus.length > 0 && (
+                        <div className="consensus-section">
+                          <h4>✅ Final Consensus Values (Written to CSV)</h4>
+                          <table className="consensus-table">
+                            <thead>
+                              <tr>
+                                <th>Row #</th>
+                                <th>Column</th>
+                                <th>Final Value</th>
+                                <th>Contributions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {consensus.map(c => (
+                                <tr key={`${c.row_index}-${c.column_name}`}>
+                                  <td>{c.row_index + 1}</td>
+                                  <td>{c.column_name}</td>
+                                  <td><strong>{c.consensus_value}</strong></td>
+                                  <td>{c.contribution_count} students</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      
+                      {/* Individual Submissions Section */}
+                      <div className="submissions-section">
+                        <h4>📝 Individual Student Submissions</h4>
+                        <div className="submissions-grid">
+                          {annotations
+                            .filter(a => selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter)
+                            .map(annotation => (
+                              <div key={annotation.assignment_id} className="submission-card">
+                                <div className="submission-header">
+                                  <strong>{annotation.student_name}</strong>
+                                  <span className={`submission-status ${annotation.status}`}>
+                                    {annotation.status}
+                                  </span>
+                                </div>
+                                <div className="submission-details">
+                                  <div><strong>Column:</strong> {annotation.column_name}</div>
+                                  <div><strong>Row:</strong> {annotation.row_index + 1}</div>
+                                  <div><strong>Submitted Value:</strong> {annotation.submitted_value || 'Not yet submitted'}</div>
+                                  <div><strong>Original Value:</strong> {annotation.original_value || '(empty)'}</div>
+                                  <div><strong>Submitted:</strong> {annotation.submitted_at ? new Date(annotation.submitted_at).toLocaleString() : 'Pending'}</div>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 4: My Contributions (Student View) */}
+              {activeTab === 'myContributions' && user?.role === 'student' && (
+                <div className="my-contributions-container">
+                  <h3>📋 My Contributions to this Dataset</h3>
+                  
+                  {annotations.length === 0 ? (
+                    <div className="no-annotations">
+                      <p>You haven't made any contributions to this dataset yet.</p>
+                    </div>
+                  ) : (
+                    <div className="contributions-list">
+                      {annotations.map(annotation => (
+                        <div key={annotation.assignment_id} className="contribution-card">
+                          <div className="contribution-header">
+                            <span className={`status-badge ${annotation.status}`}>
+                              {annotation.status === 'submitted' ? '✓ Submitted' : '⏳ Pending'}
+                            </span>
+                          </div>
+                          <div className="contribution-details">
+                            <div><strong>Column:</strong> {annotation.column_name}</div>
+                            <div><strong>Row:</strong> {annotation.row_index + 1}</div>
+                            <div><strong>Your submitted value:</strong> {annotation.submitted_value || 'Not yet submitted'}</div>
+                            <div><strong>Task:</strong> {annotation.task_description || `Fill in ${annotation.column_name} for this row`}</div>
+                            {annotation.submitted_at && (
+                              <div><strong>Submitted on:</strong> {new Date(annotation.submitted_at).toLocaleString()}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
             
