@@ -360,6 +360,137 @@ function Dashboard() {
     );
   }
 
+  
+  function DatasetLimitConfig({ datasetId, currentLimit, onLimitUpdate }) {
+      const [limit, setLimit] = useState(currentLimit || 5);
+      const [isUpdating, setIsUpdating] = useState(false);
+      const [studentProgress, setStudentProgress] = useState(null);
+      const [showProgress, setShowProgress] = useState(false);
+
+      const handleUpdateLimit = async () => {
+          if (limit < 1 || limit > 100) {
+              alert('Limit must be between 1 and 100');
+              return;
+          }
+
+          setIsUpdating(true);
+          try {
+              const response = await fetch(`/api/admin/dataset/${datasetId}/limit`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ maxAnnotationsPerStudent: limit })
+              });
+
+              const data = await response.json();
+              if (data.success) {
+                  alert(data.message);
+                  onLimitUpdate && onLimitUpdate(limit);
+              } else {
+                  alert(data.error);
+              }
+          } catch (error) {
+              console.error('Error updating limit:', error);
+              alert('Failed to update limit');
+          } finally {
+              setIsUpdating(false);
+          }
+      };
+
+      const loadStudentProgress = async () => {
+          try {
+              const response = await fetch(`/api/admin/dataset/${datasetId}/student-progress`, {
+                  credentials: 'include'
+              });
+              const data = await response.json();
+              if (data.success) {
+                  setStudentProgress(data);
+                  setShowProgress(true);
+              }
+          } catch (error) {
+              console.error('Error loading student progress:', error);
+          }
+      };
+
+      return (
+          <div className="dataset-limit-config">
+              <h4>📊 Annotation Limits Configuration</h4>
+              <div className="limit-control">
+                  <label>
+                      Max annotations per student:
+                      <input
+                          type="number"
+                          min="1"
+                          max="100"
+                          value={limit}
+                          onChange={(e) => setLimit(parseInt(e.target.value))}
+                          disabled={isUpdating}
+                      />
+                  </label>
+                  <button 
+                      onClick={handleUpdateLimit} 
+                      disabled={isUpdating}
+                      className="btn-secondary"
+                  >
+                      {isUpdating ? 'Updating...' : 'Update Limit'}
+                  </button>
+                  <button 
+                      onClick={loadStudentProgress}
+                      className="btn-secondary"
+                  >
+                      View Student Progress
+                  </button>
+              </div>
+
+              {showProgress && studentProgress && (
+                  <div className="student-progress-modal">
+                      <div className="progress-header">
+                          <h5>Student Progress for {studentProgress.dataset.title}</h5>
+                          <button onClick={() => setShowProgress(false)} className="close-btn">×</button>
+                      </div>
+                      <div className="table-responsive">
+                          <table className="progress-table">
+                              <thead>
+                                  <tr>
+                                      <th>Student Name</th>
+                                      <th>Email</th>
+                                      <th>Annotations Made</th>
+                                      <th>Max Allowed</th>
+                                      <th>Remaining</th>
+                                      <th>Progress</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  {studentProgress.studentProgress.map(student => (
+                                      <tr key={student.user_id}>
+                                          <td>{student.student_name}</td>
+                                          <td>{student.email}</td>
+                                          <td className="text-center">{student.annotations_made}</td>
+                                          <td className="text-center">{student.max_allowed}</td>
+                                          <td className="text-center">
+                                              {student.max_allowed - student.annotations_made}
+                                          </td>
+                                          <td>
+                                              <div className="progress-bar-container">
+                                                  <div 
+                                                      className="progress-bar" 
+                                                      style={{ 
+                                                          width: `${(student.annotations_made / student.max_allowed) * 100}%`,
+                                                          backgroundColor: student.annotations_made >= student.max_allowed ? '#ef4444' : '#4ade80'
+                                                      }}
+                                                  ></div>
+                                              </div>
+                                          </td>
+                                      </tr>
+                                  ))}
+                              </tbody>
+                          </table>
+                      </div>
+                  </div>
+              )}
+          </div>
+      );
+  }
   // Effects
   useEffect(() => {
     checkUserSession();
@@ -1064,6 +1195,21 @@ function Dashboard() {
                       />
                     </div>
                   )}
+
+                  {user?.role === 'admin' && (
+                      <div className="admin-config-section">
+                          <DatasetLimitConfig 
+                              datasetId={selectedDataset.id}
+                              currentLimit={selectedDataset.max_annotation}
+                              onLimitUpdate={(newLimit) => {
+                                  setSelectedDataset({
+                                      ...selectedDataset,
+                                      max_annotation: newLimit
+                                  });
+                              }}
+                          />
+                      </div>
+                  )}
                   
                   {selectedDataset.preview && (
                     <div className="info-section">
@@ -1197,43 +1343,44 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* Tab 3: Annotations View (Admin) */}
               {activeTab === 'annotations' && user?.role === 'admin' && (
-                <div className="annotations-container">
-                  <h3>Student Annotations & Submissions</h3>
-                  
-                  {isLoadingAnnotations ? (
-                    <div className="loading-spinner-small"></div>
-                  ) : annotations.length === 0 ? (
-                    <div className="no-annotations">
-                      <p>No annotations have been submitted for this dataset yet.</p>
+              <div className="annotations-container">
+                <h3>Student Annotations & Submissions</h3>
+                
+                {isLoadingAnnotations ? (
+                  <div className="loading-spinner-small"></div>
+                ) : annotations.length === 0 ? (
+                  <div className="no-annotations">
+                    <p>No annotations have been submitted for this dataset yet.</p>
+                  </div>
+                ) : (
+                  <div className="annotations-list">
+                    {/* Filter controls */}
+                    <div className="annotations-filters">
+                      <select 
+                        value={selectedStudentFilter} 
+                        onChange={(e) => setSelectedStudentFilter(e.target.value)}
+                        className="filter-select"
+                      >
+                        <option value="all">All Students</option>
+                        {[...new Map(annotations.map(a => [a.student_id, a])).values()].map(student => (
+                          <option key={student.student_id} value={student.student_id}>
+                            {student.student_name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  ) : (
-                    <div className="annotations-list">
-                      {/* Filter controls */}
-                      <div className="annotations-filters">
-                        <select 
-                          value={selectedStudentFilter} 
-                          onChange={(e) => setSelectedStudentFilter(e.target.value)}
-                        >
-                          <option value="all">All Students</option>
-                          {[...new Map(annotations.map(a => [a.student_id, a])).values()].map(student => (
-                            <option key={student.student_id} value={student.student_id}>
-                              {student.student_name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      {/* Consensus Results Section */}
-                      {consensus.length > 0 && (
-                        <div className="consensus-section">
-                          <h4>✅ Final Consensus Values (Written to CSV)</h4>
-                          <table className="consensus-table">
+                    
+                    {/* Consensus Results Section - Table View */}
+                    {consensus.length > 0 && (
+                      <div className="consensus-section">
+                        <h4>✅ Final Consensus Values (Written to CSV)</h4>
+                        <div className="table-responsive">
+                          <table className="data-table consensus-table">
                             <thead>
                               <tr>
                                 <th>Row #</th>
-                                <th>Column</th>
+                                <th>Column Name</th>
                                 <th>Final Value</th>
                                 <th>Contributions</th>
                               </tr>
@@ -1241,80 +1388,189 @@ function Dashboard() {
                             <tbody>
                               {consensus.map(c => (
                                 <tr key={`${c.row_index}-${c.column_name}`}>
-                                  <td>{c.row_index + 1}</td>
-                                  <td>{c.column_name}</td>
-                                  <td><strong>{c.consensus_value}</strong></td>
-                                  <td>{c.contribution_count} students</td>
+                                  <td className="text-center">{c.row_index + 1}</td>
+                                  <td className="column-name-cell">{c.column_name}</td>
+                                  <td className="consensus-value-cell">
+                                    <span className="consensus-badge">{c.consensus_value}</span>
+                                  </td>
+                                  <td className="text-center">
+                                    <span className="contribution-count">{c.contribution_count} student{c.contribution_count !== 1 ? 's' : ''}</span>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
-                      )}
+                      </div>
+                    )}
+                    
+                    {/* Individual Submissions Section - Unified Table View */}
+                    <div className="submissions-section">
+                      <h4>📝 Individual Student Submissions</h4>
+                      <div className="table-responsive">
+                        <table className="data-table submissions-table">
+                          <thead>
+                            <tr>
+                              <th>Student Name</th>
+                              <th>Status</th>
+                              <th>Column</th>
+                              <th>Row #</th>
+                              <th>Submitted Value</th>
+                              <th>Original Value</th>
+                              <th>Submitted At</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {annotations
+                              .filter(a => selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter)
+                              .map(annotation => (
+                                <tr key={annotation.assignment_id} className={`submission-row status-${annotation.status}`}>
+                                  <td className="student-name-cell">
+                                  <div className="student-info">
+                                    <span className="student-full-name">{annotation.student_name}</span>
+                                  </div>
+                                </td>
+                                  <td>
+                                    <span className={`submission-status-badge ${annotation.status}`}>
+                                      {annotation.status === 'submitted' ? '✓ Submitted' : '⏳ Pending'}
+                                    </span>
+                                  </td>
+                                  <td className="column-name-cell">{annotation.column_name}</td>
+                                  <td className="text-center">{annotation.row_index + 1}</td>
+                                  <td className="submitted-value-cell">
+                                    {annotation.submitted_value ? (
+                                      <span className="submitted-value">{annotation.submitted_value}</span>
+                                    ) : (
+                                      <span className="empty-value">—</span>
+                                    )}
+                                  </td>
+                                  <td className="original-value-cell">
+                                    {annotation.original_value ? (
+                                      annotation.original_value
+                                    ) : (
+                                      <span className="empty-value">(empty)</span>
+                                    )}
+                                  </td>
+                                  <td className="date-cell">
+                                    {annotation.submitted_at ? (
+                                      <span title={new Date(annotation.submitted_at).toLocaleString()}>
+                                        {new Date(annotation.submitted_at).toLocaleDateString()}
+                                      </span>
+                                    ) : (
+                                      <span className="pending-text">Pending</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
                       
-                      {/* Individual Submissions Section */}
-                      <div className="submissions-section">
-                        <h4>📝 Individual Student Submissions</h4>
-                        <div className="submissions-grid">
-                          {annotations
-                            .filter(a => selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter)
-                            .map(annotation => (
-                              <div key={annotation.assignment_id} className="submission-card">
-                                <div className="submission-header">
-                                  <strong>{annotation.student_name}</strong>
-                                  <span className={`submission-status ${annotation.status}`}>
-                                    {annotation.status}
-                                  </span>
-                                </div>
-                                <div className="submission-details">
-                                  <div><strong>Column:</strong> {annotation.column_name}</div>
-                                  <div><strong>Row:</strong> {annotation.row_index + 1}</div>
-                                  <div><strong>Submitted Value:</strong> {annotation.submitted_value || 'Not yet submitted'}</div>
-                                  <div><strong>Original Value:</strong> {annotation.original_value || '(empty)'}</div>
-                                  <div><strong>Submitted:</strong> {annotation.submitted_at ? new Date(annotation.submitted_at).toLocaleString() : 'Pending'}</div>
-                                </div>
-                              </div>
-                            ))}
+                      {/* Summary stats */}
+                      <div className="submissions-summary">
+                        <div className="summary-stat">
+                          <span className="stat-label">Total Submissions:</span>
+                          <span className="stat-value">{annotations.filter(a => selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter).length}</span>
+                        </div>
+                        <div className="summary-stat">
+                          <span className="stat-label">Submitted:</span>
+                          <span className="stat-value submitted">
+                            {annotations.filter(a => (selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter) && a.status === 'submitted').length}
+                          </span>
+                        </div>
+                        <div className="summary-stat">
+                          <span className="stat-label">Pending:</span>
+                          <span className="stat-value pending">
+                            {annotations.filter(a => (selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter) && a.status !== 'submitted').length}
+                          </span>
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
+            )}
 
-              {/* Tab 4: My Contributions (Student View) */}
-              {activeTab === 'myContributions' && user?.role === 'student' && (
-                <div className="my-contributions-container">
-                  <h3>📋 My Contributions to this Dataset</h3>
-                  
-                  {annotations.length === 0 ? (
-                    <div className="no-annotations">
-                      <p>You haven't made any contributions to this dataset yet.</p>
+            {/* Tab 4: My Contributions (Student View) - Also converted to table */}
+            {activeTab === 'myContributions' && user?.role === 'student' && (
+              <div className="my-contributions-container">
+                <h3>📋 My Contributions to this Dataset</h3>
+                
+                {annotations.length === 0 ? (
+                  <div className="no-annotations">
+                    <p>You haven't made any contributions to this dataset yet.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="table-responsive">
+                      <table className="data-table contributions-table">
+                        <thead>
+                          <tr>
+                            <th>Status</th>
+                            <th>Column</th>
+                            <th>Row #</th>
+                            <th>Your Submitted Value</th>
+                            <th>Task Description</th>
+                            <th>Submitted On</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {annotations.map(annotation => (
+                            <tr key={annotation.assignment_id} className={`contribution-row status-${annotation.status}`}>
+                              <td>
+                                <span className={`submission-status-badge ${annotation.status}`}>
+                                  {annotation.status === 'submitted' ? '✓ Submitted' : '⏳ Pending'}
+                                </span>
+                              </td>
+                              <td className="column-name-cell">{annotation.column_name}</td>
+                              <td className="text-center">{annotation.row_index + 1}</td>
+                              <td className="submitted-value-cell">
+                                {annotation.submitted_value ? (
+                                  <span className="submitted-value">{annotation.submitted_value}</span>
+                                ) : (
+                                  <span className="empty-value">Not yet submitted</span>
+                                )}
+                              </td>
+                              <td className="task-desc-cell">
+                                {annotation.task_description || `Fill in ${annotation.column_name} for this row`}
+                              </td>
+                              <td className="date-cell">
+                                {annotation.submitted_at ? (
+                                  <span title={new Date(annotation.submitted_at).toLocaleString()}>
+                                    {new Date(annotation.submitted_at).toLocaleDateString()}
+                                  </span>
+                                ) : (
+                                  <span className="pending-text">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  ) : (
-                    <div className="contributions-list">
-                      {annotations.map(annotation => (
-                        <div key={annotation.assignment_id} className="contribution-card">
-                          <div className="contribution-header">
-                            <span className={`status-badge ${annotation.status}`}>
-                              {annotation.status === 'submitted' ? '✓ Submitted' : '⏳ Pending'}
-                            </span>
-                          </div>
-                          <div className="contribution-details">
-                            <div><strong>Column:</strong> {annotation.column_name}</div>
-                            <div><strong>Row:</strong> {annotation.row_index + 1}</div>
-                            <div><strong>Your submitted value:</strong> {annotation.submitted_value || 'Not yet submitted'}</div>
-                            <div><strong>Task:</strong> {annotation.task_description || `Fill in ${annotation.column_name} for this row`}</div>
-                            {annotation.submitted_at && (
-                              <div><strong>Submitted on:</strong> {new Date(annotation.submitted_at).toLocaleString()}</div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                    
+                    <div className="contributions-summary">
+                      <div className="summary-stat">
+                        <span className="stat-label">Total Contributions:</span>
+                        <span className="stat-value">{annotations.length}</span>
+                      </div>
+                      <div className="summary-stat">
+                        <span className="stat-label">Completed:</span>
+                        <span className="stat-value submitted">
+                          {annotations.filter(a => a.status === 'submitted').length}
+                        </span>
+                      </div>
+                      <div className="summary-stat">
+                        <span className="stat-label">Pending:</span>
+                        <span className="stat-value pending">
+                          {annotations.filter(a => a.status !== 'submitted').length}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </div>
-              )}
+                  </>
+                )}
+              </div>
+            )}
             </div>
             
             <div className="modal-footer">

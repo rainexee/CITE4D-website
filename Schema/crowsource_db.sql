@@ -17,10 +17,7 @@ CREATE TABLE IF NOT EXISTS User(
 
 );
 
-UPDATE User SET role = 'student' WHERE user_id = 1;
-UPDATE User SET role = 'admin' WHERE user_id = 1;
 
-SELECT * From User;
 
 CREATE TABLE IF NOT EXISTS Dataset(
     dataset_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -47,6 +44,7 @@ CREATE TABLE IF NOT EXISTS Dataset(
     uploaded_by INT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    max_annotation INT DEFAULT 5,
     FOREIGN KEY (uploaded_by) REFERENCES User(user_id) ON DELETE SET NULL
 );
 
@@ -86,6 +84,8 @@ CREATE TABLE IF NOT EXISTS AnnotationVote (
     INDEX idx_annotation (annotation_id)
 );
 
+
+
 CREATE TABLE IF NOT EXISTS DatasetColumnTask (
     task_id INT PRIMARY KEY AUTO_INCREMENT,
     dataset_id INT NOT NULL,
@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS DatasetColumnTask (
     FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
     INDEX idx_dataset (dataset_id)
 );
+
+
 
 CREATE TABLE IF NOT EXISTS StudentCellAssignment (
     assignment_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -131,4 +133,21 @@ CREATE TABLE IF NOT EXISTS CellConsensus (
     UNIQUE KEY unique_cell (dataset_id, task_id, row_index)
 );
 
+CREATE TABLE IF NOT EXISTS StudentDatasetAnnotationCount (
+    count_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    student_id INT NOT NULL,
+    annotation_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    FOREIGN KEY (student_id) REFERENCES User(user_id) ON DELETE CASCADE,
+    UNIQUE KEY unique_student_dataset (dataset_id, student_id),
+    INDEX idx_dataset (dataset_id),
+    INDEX idx_student (student_id)
+);
 
+UPDATE User SET role = 'student' WHERE user_id = 1;
+UPDATE User SET role = 'admin' WHERE user_id = 1;
+
+SELECT * From User;

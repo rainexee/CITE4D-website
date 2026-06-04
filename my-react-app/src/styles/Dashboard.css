@@ -1,4 +1,4 @@
-/* Dashboard Container */
+
 .dashboard-container {
   display: flex;
   min-height: 100vh;
@@ -6,7 +6,16 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', sans-serif;
 }
 
-/* Sidebar */
+.dashboard-main {
+  flex: 1;
+  margin-left: 280px;
+  padding: 20px;
+}
+
+/* ========================================
+   SIDEBAR
+   ======================================== */
+
 .dashboard-sidebar {
   width: 280px;
   background: white;
@@ -25,6 +34,7 @@
   transform: translateX(0);
 }
 
+/* Sidebar Header */
 .sidebar-header {
   padding: 24px 20px;
   border-bottom: 1px solid #e5e7eb;
@@ -55,6 +65,7 @@
   color: #6b7280;
 }
 
+/* Sidebar Navigation */
 .sidebar-nav {
   flex: 1;
   padding: 20px;
@@ -100,6 +111,7 @@
   color: #3b82f6;
 }
 
+/* Sidebar Footer */
 .sidebar-footer {
   padding: 20px;
   border-top: 1px solid #e5e7eb;
@@ -170,14 +182,10 @@
   color: #dc2626;
 }
 
-/* Main Content */
-.dashboard-main {
-  flex: 1;
-  margin-left: 280px;
-  padding: 20px;
-}
+/* ========================================
+   HEADER
+   ======================================== */
 
-/* Header */
 .dashboard-header {
   background: white;
   border-radius: 12px;
@@ -262,6 +270,7 @@
   transform: translateY(-1px);
 }
 
+/* User Menu */
 .user-menu-wrapper {
   position: relative;
 }
@@ -335,7 +344,10 @@
   color: #dc2626;
 }
 
-/* Welcome Banner */
+/* ========================================
+   WELCOME BANNER
+   ======================================== */
+
 .welcome-banner {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 12px;
@@ -386,7 +398,10 @@
   opacity: 0.9;
 }
 
-/* Filters Bar */
+/* ========================================
+   FILTERS BAR
+   ======================================== */
+
 .filters-bar {
   background: white;
   border-radius: 12px;
@@ -455,7 +470,10 @@
   color: white;
 }
 
-/* Datasets Container */
+/* ========================================
+   DATASETS CONTAINER & CARDS
+   ======================================== */
+
 .datasets-container {
   display: grid;
   gap: 20px;
@@ -637,7 +655,10 @@
   color: #1f2937;
 }
 
-/* Modal */
+/* ========================================
+   MODAL
+   ======================================== */
+
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -667,11 +688,17 @@
   animation: slideUp 0.3s;
 }
 
+.modal-content.large-modal {
+  max-width: 800px;
+  width: 90%;
+}
+
 @keyframes slideUp {
   from { transform: translateY(50px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* Modal Header */
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -692,9 +719,100 @@
   color: #6b7280;
 }
 
+/* Modal Tabs */
+.modal-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 0 24px;
+  background: white;
+}
+
+.modal-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.modal-tab:hover {
+  color: #333;
+  background: #f5f5f5;
+}
+
+.modal-tab.active {
+  color: #4CAF50;
+}
+
+.modal-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #4CAF50;
+}
+
+.task-badge {
+  background-color: #ff4444;
+  color: white;
+  border-radius: 10px;
+  padding: 2px 6px;
+  font-size: 10px;
+  margin-left: 6px;
+}
+
+/* Modal Body */
 .modal-body {
   padding: 24px;
+  max-height: 60vh;
+  overflow-y: auto;
 }
+
+/* Modal Footer */
+.modal-footer {
+  padding: 20px 24px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.btn-primary {
+  padding: 8px 16px;
+  background: #3b82f6;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ========================================
+   INFO SECTIONS (Modal Content)
+   ======================================== */
 
 .info-section {
   margin-bottom: 24px;
@@ -737,11 +855,16 @@
   font-family: monospace;
 }
 
-.preview-table {
+/* Preview Table */
+.preview-table-container {
   overflow-x: auto;
 }
 
-.preview-table table {
+.preview-scroll {
+  overflow-x: auto;
+}
+
+.preview-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
@@ -760,38 +883,665 @@
   border: 1px solid #e5e7eb;
 }
 
-.modal-footer {
-  padding: 20px 24px;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
+.preview-row-number {
+  background: #f9fafb;
+  font-weight: 500;
+  color: #6b7280;
+  text-align: center;
 }
 
-.btn-secondary {
-  padding: 8px 16px;
-  background: #f3f4f6;
-  border: none;
+.preview-loading {
+  text-align: center;
+  padding: 40px;
+}
+
+.preview-error {
+  text-align: center;
+  padding: 40px;
+  color: #6b7280;
+}
+
+.preview-note {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.loading-spinner-small {
+  width: 30px;
+  height: 30px;
+  border: 2px solid #f3f4f6;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 12px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ========================================
+   STUDENT TASK SECTION
+   ======================================== */
+
+.student-task-container {
+  padding: 20px;
+}
+
+.task-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
   border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.task-message.success {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.task-message.error {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.task-message.info {
+  background: #d1ecf1;
+  color: #0c5460;
+  border: 1px solid #bee5eb;
+}
+
+.task-info-section {
+  margin-bottom: 24px;
+}
+
+.detail-card {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+}
+
+.detail-card h4 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: #1f2937;
+}
+
+.task-data-section {
+  margin-bottom: 24px;
+}
+
+.task-data-section h3 {
+  margin-bottom: 12px;
+  color: #1f2937;
+}
+
+.row-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+.row-data-table th,
+.row-data-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.row-data-table th {
+  background: #f8f9fa;
+  font-weight: 600;
+}
+
+.target-column {
+  background: #fff3cd;
+}
+
+.target-column .column-name {
+  font-weight: 600;
+  color: #856404;
+}
+
+.empty-value {
+  color: #dc3545;
+  font-style: italic;
+}
+
+.task-input-section {
+  margin-top: 24px;
+}
+
+.task-input-section h3 {
+  margin-bottom: 12px;
+  color: #1f2937;
+}
+
+.task-input-section label {
+  display: block;
+  margin-bottom: 8px;
   color: #4b5563;
 }
 
-.btn-primary {
-  padding: 8px 16px;
-  background: #3b82f6;
-  border: none;
+.task-input-section textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
-  cursor: pointer;
   font-size: 14px;
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  font-family: inherit;
+  resize: vertical;
 }
 
-/* Loading State */
+.task-input-section textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  ring: 2px solid rgba(59,130,246,0.1);
+}
+
+.task-help-text {
+  margin-top: 8px;
+  color: #6b7280;
+}
+
+.task-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ========================================
+   ANNOTATIONS & SUBMISSIONS TABLES
+   ======================================== */
+
+.annotations-container {
+  padding: 20px;
+}
+
+.annotations-filters {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.filter-select {
+  padding: 0.5rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: white;
+  cursor: pointer;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #667eea;
+  ring: 2px solid rgba(102, 126, 234, 0.2);
+}
+
+/* Consensus Section */
+.consensus-section {
+  margin-bottom: 2rem;
+}
+
+.consensus-section h4,
+.submissions-section h4 {
+  margin: 1rem 0 0.5rem 0;
+  font-size: 1rem;
+  color: #2d3748;
+}
+
+/* Table Styles */
+.table-responsive {
+  overflow-x: auto;
+  margin: 1rem 0;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  background: white;
+}
+
+.data-table thead {
+  background: #f8f9fa;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.data-table th {
+  padding: 0.875rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #2d3748;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.data-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e9ecef;
+  vertical-align: middle;
+}
+
+.data-table tbody tr:hover {
+  background: #f7fafc;
+}
+
+/* Table Cell Styles */
+.text-center {
+  text-align: center;
+}
+
+.column-name-cell {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 0.8rem;
+  color: #2c5282;
+  font-weight: 500;
+}
+
+.consensus-value-cell .consensus-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  background: #c6f6d5;
+  color: #22543d;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.contribution-count {
+  background: #e9ecef;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  color: #4a5568;
+}
+
+/* Student Info */
+.student-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.student-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Status Badges */
+.submission-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.submission-status-badge.submitted {
+  background: #c6f6d5;
+  color: #22543d;
+}
+
+.submission-status-badge.pending {
+  background: #fed7d7;
+  color: #742a2a;
+}
+
+/* Value Styles */
+.submitted-value {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 0.8rem;
+  color: #2d3748;
+  background: #edf2f7;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.pending-text {
+  color: #e53e3e;
+  font-weight: 500;
+}
+
+.date-cell {
+  font-size: 0.75rem;
+  color: #718096;
+}
+
+/* Task Description Cell */
+.task-desc-cell {
+  max-width: 250px;
+  font-size: 0.8rem;
+  color: #4a5568;
+  line-height: 1.4;
+}
+
+/* Row Status Coloring */
+.submission-row.status-submitted:hover {
+  background: #f0fff4;
+}
+
+.submission-row.status-pending:hover {
+  background: #fff5f5;
+}
+
+.contribution-row.status-submitted:hover {
+  background: #f0fff4;
+}
+
+.contribution-row.status-pending:hover {
+  background: #fff5f5;
+}
+
+/* Summary Stats */
+.submissions-summary,
+.contributions-summary {
+  display: flex;
+  gap: 1.5rem;
+  padding: 1rem;
+  background: #f7fafc;
+  border-radius: 12px;
+  margin-top: 1rem;
+}
+
+.summary-stat {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.summary-stat .stat-label {
+  font-size: 0.75rem;
+  color: #718096;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-stat .stat-value {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #2d3748;
+}
+
+.summary-stat .stat-value.submitted {
+  color: #38a169;
+}
+
+.summary-stat .stat-value.pending {
+  color: #e53e3e;
+}
+
+/* No Annotations */
+.no-annotations {
+  text-align: center;
+  padding: 40px;
+  color: #6b7280;
+}
+
+/* My Contributions */
+.my-contributions-container {
+  padding: 20px;
+}
+
+.my-contributions-container h3 {
+  margin-bottom: 16px;
+  color: #1f2937;
+}
+
+.contributions-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+/* ========================================
+   DATASET LIMIT CONFIGURATION
+   ======================================== */
+
+.dataset-limit-config {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 20px;
+}
+
+.dataset-limit-config h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.limit-control {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.limit-control label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+
+.limit-control input {
+  width: 80px;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+/* Student Progress Modal */
+.student-progress-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  width: 90%;
+  max-width: 1000px;
+  max-height: 80vh;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.progress-header h5 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+}
+
+.progress-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.progress-table th,
+.progress-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.progress-table th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+.progress-bar-container {
+  width: 100px;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/* Limit Info Card */
+.limit-info-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  color: white;
+}
+
+.limit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.limit-header h4 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.limit-count {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.limit-message {
+  margin: 12px 0 0 0;
+  font-size: 0.9rem;
+  opacity: 0.95;
+}
+
+.limit-message strong {
+  font-weight: 600;
+}
+
+/* Admin Task Section */
+.admin-task-section {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.create-task-form {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.create-task-form h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.task-help {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 16px;
+}
+
+.create-task-form select,
+.create-task-form textarea {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.create-task-form textarea {
+  resize: vertical;
+}
+
+.contributions-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.contributions-label input {
+  width: 60px;
+  padding: 6px;
+}
+
+.create-task-btn {
+  background: #3b82f6;
+  color: white;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.create-task-btn:hover {
+  background: #2563eb;
+}
+
+.create-task-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* ========================================
+   LOADING STATES
+   ======================================== */
+
 .dashboard-loading {
   display: flex;
   flex-direction: column;
@@ -812,12 +1562,12 @@
   margin-bottom: 20px;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+/* ========================================
+   RESPONSIVE DESIGN
+   ======================================== */
 
-/* Responsive Design */
 @media (max-width: 768px) {
+  /* Sidebar */
   .dashboard-sidebar {
     transform: translateX(-100%);
   }
@@ -834,10 +1584,12 @@
     margin-left: 0;
   }
   
+  /* Header */
   .menu-toggle {
     display: block;
   }
   
+  /* Welcome Banner */
   .welcome-banner {
     flex-direction: column;
     text-align: center;
@@ -847,10 +1599,7 @@
     margin-top: 20px;
   }
   
-  .datasets-container.grid {
-    grid-template-columns: 1fr;
-  }
-  
+  /* Filters */
   .filters-bar {
     flex-direction: column;
     align-items: stretch;
@@ -858,240 +1607,65 @@
   
   .categories-scroll {
     overflow-x: auto;
+    flex-wrap: nowrap;
   }
   
+  /* Datasets */
+  .datasets-container.grid {
+    grid-template-columns: 1fr;
+  }
+  
+  /* Modal */
+  .modal-tabs {
+    padding: 0 12px;
+    overflow-x: auto;
+  }
+  
+  .modal-tab {
+    padding: 10px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  
+  .modal-body {
+    padding: 16px;
+  }
+  
+  /* Info Grid */
   .info-grid {
     grid-template-columns: 1fr;
   }
-  /* Modal Tabs */
-  .modal-tabs {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
-    background: white;
+  
+  /* Tables */
+  .data-table th,
+  .data-table td {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
   }
-
-  .modal-tab {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    background: none;
-    border: none;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #6b7280;
-    cursor: pointer;
-    transition: all 0.2s;
-    position: relative;
+  
+  .student-initials {
+    width: 24px;
+    height: 24px;
+    font-size: 0.7rem;
   }
-
-  .modal-tab:hover {
-    color: #3b82f6;
+  
+  .summary-stat .stat-value {
+    font-size: 0.9rem;
   }
-
-  .modal-tab.active {
-    color: #3b82f6;
+  
+  /* Progress Modal */
+  .student-progress-modal {
+    width: 95%;
+    padding: 12px;
   }
-
-  .modal-tab.active::after {
-    content: '';
-    position: absolute;
-    bottom: -1px;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: #3b82f6;
+  
+  .progress-table th,
+  .progress-table td {
+    padding: 8px;
+    font-size: 12px;
   }
-
-
-  .modal-body {
-    padding: 1.5rem;
-    max-height: 60vh;
-    overflow-y: auto;
+  
+  .progress-bar-container {
+    width: 60px;
   }
-
-  /* Task badge styling */
-.task-badge {
-  background-color: #ff4444;
-  color: white;
-  border-radius: 10px;
-  padding: 2px 6px;
-  font-size: 10px;
-  margin-left: 6px;
-}
-
-/* Modal tabs - ensure they're visible */
-.modal-tabs {
-  display: flex;
-  gap: 8px;
-  border-bottom: 1px solid #e0e0e0;
-  padding: 0 24px;
-  background: white;
-}
-
-.modal-tab {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  color: #666;
-  transition: all 0.2s;
-}
-
-.modal-tab:hover {
-  color: #333;
-  background: #f5f5f5;
-}
-
-.modal-tab.active {
-  color: #4CAF50;
-  border-bottom: 2px solid #4CAF50;
-}
-
-/* Large modal for better task display */
-.modal-content.large-modal {
-  max-width: 800px;
-  width: 90%;
-}
-
-/* Annotations Panel Styles */
-.annotations-container {
-  padding: 20px;
-}
-
-.annotations-filters {
-  margin-bottom: 20px;
-}
-
-.annotations-filters select {
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.consensus-section,
-.submissions-section {
-  margin-bottom: 30px;
-}
-
-.consensus-section h4,
-.submissions-section h4 {
-  margin-bottom: 15px;
-  color: #333;
-}
-
-.consensus-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.consensus-table th,
-.consensus-table td {
-  padding: 10px 12px;
-  text-align: left;
-  border-bottom: 1px solid #eee;
-}
-
-.consensus-table th {
-  background: #f5f5f5;
-  font-weight: 600;
-}
-
-.submissions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 15px;
-}
-
-.submission-card,
-.contribution-card {
-  background: #f9f9f9;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 15px;
-}
-
-.submission-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.submission-status {
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.submission-status.submitted {
-  background: #d4edda;
-  color: #155724;
-}
-
-.submission-status.pending {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.submission-details,
-.contribution-details {
-  font-size: 13px;
-}
-
-.submission-details div,
-.contribution-details div {
-  margin-bottom: 6px;
-}
-
-.contribution-card {
-  margin-bottom: 12px;
-}
-
-.status-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.status-badge.submitted {
-  background: #d4edda;
-  color: #155724;
-}
-
-.status-badge.pending {
-  background: #ffeaa7;
-  color: #d63031;
-}
-
-.no-annotations {
-  text-align: center;
-  padding: 40px;
-  color: #666;
-}
-
-.my-contributions-container {
-  padding: 20px;
-}
-
-.contributions-list {
-  max-height: 500px;
-  overflow-y: auto;
-}
 }
