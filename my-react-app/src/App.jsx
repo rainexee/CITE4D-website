@@ -10,7 +10,8 @@ import LandingPage from './pages/LandingPage';
 import NewDataset from './pages/NewDataset';
 import AnnotationsPanel from './pages/AnnotationsPanel';
 import StudentAnnotationView from './pages/StudentAnnotationView';
-
+import Leaderboard from './pages/Leaderboard';
+import StudentLabelAnnotation from './pages/StudentLabelAnnotation';
 
 function App() {
   const [showLogin, setShowLogin] = useState(false);
@@ -77,6 +78,8 @@ function App() {
       <Route path="/new-dataset" element={<NewDataset loginWithGoogle={loginWithGoogle} />} />
       <Route path="/annotation" element={<AnnotationsPanel loginWithGoogle={loginWithGoogle} />} />
       <Route path="/student/task" element={<AnnotationsPanel />} />
+      <Route path="/leaderboard" element={<Leaderboard />} />
+      <Route path="/annotate" element={<StudentLabelAnnotation />} />
       {/* <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/reviews" element={<Reviews />} />
       <Route path="/about" element={<About />} /> */}

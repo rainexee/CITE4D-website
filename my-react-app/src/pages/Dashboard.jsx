@@ -1,14 +1,16 @@
+// Dashboard.jsx - Complete Fixed Version
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Database, Search, Filter, TrendingUp, Users, Download, Eye, ThumbsUp,
+  Trophy, Database, Search, Filter, TrendingUp, Users, Download, Eye, ThumbsUp,
   MessageSquare, Star, ChevronDown, Grid, List, BarChart3, BookOpen,
   Award, Clock, User, LogOut, Settings, Bell, Menu, X, Plus, ExternalLink,
   Calendar, Activity, Flame, Sparkles, FolderOpen, FileText, Mail, MapPin,
-  Save, CheckCircle, AlertCircle, HelpCircle, ListChecks, Users as UsersIcon,
-  CheckSquare
+  Save, CheckCircle, AlertCircle, HelpCircle, ListChecks, Tag, RefreshCw, Users as UsersIcon,
+  CheckSquare, Check
 } from 'lucide-react';
 import '../styles/Dashboard.css';
+import AdminLabelConfig from './AdminLabelConfig';
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -41,6 +43,7 @@ function Dashboard() {
   const [consensus, setConsensus] = useState([]);
   const [isLoadingAnnotations, setIsLoadingAnnotations] = useState(false);
   const [selectedStudentFilter, setSelectedStudentFilter] = useState('all');
+  const [selectedValueFilter, setSelectedValueFilter] = useState('all');
 
   // Categories
   const categories = [
@@ -259,25 +262,31 @@ function Dashboard() {
   const loadAnnotations = async (datasetId) => {
     setIsLoadingAnnotations(true);
     try {
-      const response = await fetch(`/api/datasets/${datasetId}/annotations/all`, {
+      // Load label annotations from the new system
+      const response = await fetch(`/api/datasets/${datasetId}/label-annotations`, {
         credentials: 'include'
       });
       const data = await response.json();
       
       if (data.success) {
-        setAnnotations(data.annotations);
+        setAnnotations(data.annotations || []);
         
-        // Load consensus results as well
-        const consensusResponse = await fetch(`/api/datasets/${datasetId}/consensus`, {
+        // Load label consensus results as well
+        const consensusResponse = await fetch(`/api/datasets/${datasetId}/label-consensus`, {
           credentials: 'include'
         });
         const consensusData = await consensusResponse.json();
         if (consensusData.success) {
-          setConsensus(consensusData.consensus);
+          setConsensus(consensusData.consensus || []);
         }
+      } else {
+        setAnnotations([]);
+        setConsensus([]);
       }
     } catch (error) {
       console.error('Error loading annotations:', error);
+      setAnnotations([]);
+      setConsensus([]);
     } finally {
       setIsLoadingAnnotations(false);
     }
@@ -360,6 +369,147 @@ function Dashboard() {
     );
   }
 
+  function LabelSelector({ datasetId, onLabelSelected, onRefresh, user }) {
+    const [availableLabels, setAvailableLabels] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [selectedLabelId, setSelectedLabelId] = useState(null);
+    const [isGettingAssignment, setIsGettingAssignment] = useState(false);
+    const [datasetTitle, setDatasetTitle] = useState('');
+
+    const loadAvailableLabels = async () => {
+        setIsLoading(true);
+        try {
+            const response = await fetch(`/api/dataset/${datasetId}/available-labels`, {
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                setAvailableLabels(data.availableLabels);
+                setDatasetTitle(data.datasetTitle || '');
+            }
+        } catch (error) {
+            console.error('Error loading available labels:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (datasetId) {
+            loadAvailableLabels();
+        }
+    }, [datasetId]);
+
+    const handleSelectLabel = async (labelColumnId) => {
+        setSelectedLabelId(labelColumnId);
+        setIsGettingAssignment(true);
+        
+        try {
+            const response = await fetch('/api/student/get-label-assignment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    datasetId: datasetId,
+                    labelColumnId: labelColumnId
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success && data.hasAssignment) {
+                // The assignment now includes displayColumn
+                console.log('Assignment from server:', data.assignment);
+                console.log('displayColumn:', data.assignment.displayColumn);
+                console.log('rowData:', data.assignment.rowData);
+                
+                // Make sure displayColumn is set
+                if (!data.assignment.displayColumn) {
+                    // Fallback: use columnName
+                    data.assignment.displayColumn = data.assignment.columnName;
+                }
+                
+                onLabelSelected(data.assignment);
+            } else {
+                alert(data.message || 'No pending rows available for this label column.');
+                setSelectedLabelId(null);
+                loadAvailableLabels(); // Refresh the counts
+            }
+        } catch (error) {
+            console.error('Error getting assignment:', error);
+            alert('Failed to load assignment. Please try again.');
+        } finally {
+            setIsGettingAssignment(false);
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <div className="label-selector-loading">
+                <div className="loading-spinner-small"></div>
+                <p>Loading available labels...</p>
+            </div>
+        );
+    }
+
+    if (availableLabels.length === 0) {
+        return (
+            <div className="label-selector-empty">
+                <p>No label columns have been configured for this dataset yet.</p>
+                {user?.role === 'admin' && (
+                    <p className="admin-hint">As an admin, you can configure labels in the "Label Config" tab.</p>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div className="label-selector">
+            <h4>Choose a column to label:</h4>
+            <div className="label-options">
+                {availableLabels.map(label => (
+                    <button
+                        key={label.label_column_id}
+                        className={`label-option-btn ${selectedLabelId === label.label_column_id ? 'loading' : ''} ${!label.can_annotate ? 'disabled' : ''}`}
+                        onClick={() => handleSelectLabel(label.label_column_id)}
+                        disabled={!label.can_annotate || isGettingAssignment}
+                    >
+                        <div className="label-option-header">
+                            <span className="label-name">{label.column_name}</span>
+                            {label.pending_count > 0 && (
+                                <span className="pending-badge">{label.pending_count} pending</span>
+                            )}
+                            {label.has_unfinished_assignment && (
+                                <span className="unfinished-badge">In Progress</span>
+                            )}
+                        </div>
+                        {label.description && (
+                            <p className="label-description">{label.description}</p>
+                        )}
+                        {label.possible_values && label.possible_values.length > 0 && (
+                            <div className="possible-values-preview">
+                                Options: {label.possible_values.slice(0, 3).join(', ')}
+                                {label.possible_values.length > 3 && ` +${label.possible_values.length - 3}`}
+                            </div>
+                        )}
+                        {!label.can_annotate && (
+                            <div className="limit-reached-warning">
+                                ⚠️ You've reached your limit ({label.remaining_annotations} remaining for this dataset)
+                            </div>
+                        )}
+                        {selectedLabelId === label.label_column_id && isGettingAssignment && (
+                            <div className="loading-indicator">Loading task...</div>
+                        )}
+                    </button>
+                ))}
+            </div>
+            <button className="refresh-labels-btn" onClick={loadAvailableLabels} disabled={isLoading}>
+                <RefreshCw size={14} />
+                Refresh
+            </button>
+        </div>
+    );
+  }
   
   function DatasetLimitConfig({ datasetId, currentLimit, onLimitUpdate }) {
       const [limit, setLimit] = useState(currentLimit || 5);
@@ -491,6 +641,7 @@ function Dashboard() {
           </div>
       );
   }
+  
   // Effects
   useEffect(() => {
     checkUserSession();
@@ -543,8 +694,9 @@ function Dashboard() {
       currentTaskDatasetIdRef.current = datasetId;
       
       try {
-          console.log(`Loading task for dataset ${datasetId}...`);
-          const response = await fetch(`/api/student/task/${datasetId}`, { 
+          console.log(`Loading label task for dataset ${datasetId}...`);
+          // Use the NEW label annotation endpoint
+          const response = await fetch(`/api/student/annotation-task?dataset=${datasetId}`, { 
               credentials: 'include' 
           });
           const data = await response.json();
@@ -555,18 +707,14 @@ function Dashboard() {
               return;
           }
           
-          // Log the response for debugging
-          console.log(`Task response for dataset ${datasetId}:`, data);
-          
-          if (data.success && data.hasAssignment && data.assignment && data.assignment.rowData) {
-              console.log(`Task loaded successfully for dataset ${datasetId}:`, data.assignment);
+          if (data.success && data.hasAssignment && data.assignment) {
+              console.log(`Label task loaded successfully for dataset ${datasetId}:`, data.assignment);
               setStudentTask(data.assignment);
               setActiveTab('task');
-              return; // Exit early, task found
+              return;
           } else {
-              console.log(`No active task for dataset ${datasetId}`);
+              console.log(`No active label task for dataset ${datasetId}`);
               setStudentTask(null);
-              // Only change tab if we're not already on the task tab AND we have other tabs to show
               if (activeTab === 'task') {
                   setActiveTab('preview');
               }
@@ -578,54 +726,69 @@ function Dashboard() {
   };
 
   const handleSubmitStudentTask = async () => {
-    if (!submittedValue.trim()) {
-      setTaskMessage({ type: 'error', text: 'Please enter a value before submitting' });
-      return;
-    }
-
-    setIsSubmittingTask(true);
-    try {
-      const response = await fetch('/api/student/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          assignmentId: studentTask.id,
-          submittedValue: submittedValue.trim()
-        })
-      });
-
-      const data = await response.json();
-      
-      if (data.success) {
-        setTaskMessage({ type: 'success', text: data.message });
-        setSubmittedValue('');
-        
-        setTimeout(async () => {
-          setTaskMessage(null);
-          if (data.nextAssignment && data.nextAssignment.datasetId === selectedDataset?.id) {
-            // Load next assignment for the same dataset
-            setStudentTask(data.nextAssignment);
-          } else {
-            // No more tasks for this dataset
-            setStudentTask(null);
-            setTaskMessage({ type: 'info', text: 'Great job! No more tasks for this dataset.' });
-            setTimeout(() => setTaskMessage(null), 3000);
-            // Reload to see if there are any pending tasks left
-            if (selectedDataset) {
-              await loadStudentTaskForDataset(selectedDataset.id);
-            }
-          }
-        }, 2000);
-      } else {
-        setTaskMessage({ type: 'error', text: data.error || 'Failed to submit' });
+      if (!submittedValue) {
+          setTaskMessage({ type: 'error', text: 'Please select a value before submitting' });
+          return;
       }
-    } catch (error) {
-      console.error('Error submitting:', error);
-      setTaskMessage({ type: 'error', text: 'An error occurred. Please try again.' });
-    } finally {
-      setIsSubmittingTask(false);
-    }
+
+      setIsSubmittingTask(true);
+      try {
+          const response = await fetch('/api/student/submit-annotation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                  assignmentId: studentTask.id,
+                  selectedValue: submittedValue
+              })
+          });
+
+          const data = await response.json();
+          
+          if (data.success) {
+              setTaskMessage({ type: 'success', text: data.message });
+              setSubmittedValue('');
+              
+              // IMPORTANT: Update the assignment with new limitInfo
+              if (data.limitInfo) {
+                  setStudentTask(prev => prev ? {
+                      ...prev,
+                      limitInfo: data.limitInfo
+                  } : null);
+              }
+              
+              setTimeout(async () => {
+                  setTaskMessage(null);
+                  if (data.nextAssignment && data.nextAssignment.datasetId === selectedDataset?.id) {
+                      // Make sure nextAssignment has limitInfo
+                      if (data.nextAssignment && !data.nextAssignment.limitInfo && data.limitInfo) {
+                          data.nextAssignment.limitInfo = data.limitInfo;
+                      }
+                      setStudentTask(data.nextAssignment);
+                  } else {
+                      // Check if student has reached their limit
+                      if (data.limitInfo && data.limitInfo.remaining <= 0) {
+                          setTaskMessage({ 
+                              type: 'info', 
+                              text: `🎉 You've completed all ${data.limitInfo.maxAllowed} annotations for this dataset! Great job!` 
+                          });
+                          setTimeout(() => setTaskMessage(null), 3000);
+                      }
+                      setStudentTask(null);
+                      if (selectedDataset) {
+                          await loadStudentTaskForDataset(selectedDataset.id);
+                      }
+                  }
+              }, 2000);
+          } else {
+              setTaskMessage({ type: 'error', text: data.error || 'Failed to submit' });
+          }
+      } catch (error) {
+          console.error('Error submitting:', error);
+          setTaskMessage({ type: 'error', text: 'An error occurred. Please try again.' });
+      } finally {
+          setIsSubmittingTask(false);
+      }
   };
 
   const loadDatasets = async () => {
@@ -653,6 +816,7 @@ function Dashboard() {
             format: dataset.format || 'CSV',
             columns: dataset.columns || [],
             sampleRows: dataset.sampleRows || [],
+            max_annotation: dataset.max_annotation || 5,
             preview: true
           }));
           setDatasets(transformedDatasets);
@@ -836,6 +1000,10 @@ function Dashboard() {
             <button className="nav-item" onClick={() => navigate('/my-datasets')}>
               <FolderOpen size={20} />
               <span>My Datasets</span>
+            </button>
+            <button className="nav-item" onClick={() => navigate('/leaderboard')}>
+              <Trophy size={20} />
+              <span>Leaderboard</span>
             </button>
           </div>
         </div>
@@ -1109,6 +1277,16 @@ function Dashboard() {
                 <Eye size={16} />
                 Data Preview
               </button>
+
+              {user?.role === 'admin' && (
+                <button 
+                  className={`modal-tab ${activeTab === 'labelConfig' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('labelConfig')}
+                >
+                  <Tag size={16} />
+                  Label Config
+                </button>
+              )}
               
               {/* Show task tab only if there's an active task with rowData */}
               {user?.role === 'student' && studentTask && studentTask.rowData && (
@@ -1264,192 +1442,97 @@ function Dashboard() {
                   )}
                 </div>
               )}
-              
-              {/* Tab 2: Student Annotation Task */}
-              {activeTab === 'task' && studentTask && user?.role === 'student' && (
-                <div className="student-task-container">
-                  {taskMessage && (
-                    <div className={`task-message ${taskMessage.type}`}>
-                      {taskMessage.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-                      <span>{taskMessage.text}</span>
-                    </div>
-                  )}
-                  
-                  <div className="task-info-section">
-                    <div className="task-details">
-                      <div className="detail-card">
-                        <h4>🎯 Your Task</h4>
-                        <p><strong>Column to fill:</strong> {studentTask.columnName}</p>
-                        <p><strong>Instructions:</strong> {studentTask.taskDescription || `Please provide a value for the ${studentTask.columnName} column based on the other data in this row.`}</p>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="task-data-section">
-                    <h3>📊 Current Row Data</h3>
-                    <div className="data-preview">
-                      <table className="row-data-table">
-                        <thead>
-                          <tr>
-                            <th>Column</th>
-                            <th>Value</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {studentTask.rowData && Object.entries(studentTask.rowData).map(([key, value]) => (
-                            <tr key={key} className={key === studentTask.columnName ? 'target-column' : ''}>
-                              <td className="column-name">{key}</td>
-                              <td className="column-value">
-                                {key === studentTask.columnName ? (
-                                  <span className="empty-value">[Empty - Needs your input]</span>
-                                ) : (
-                                  value || '—'
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div className="task-input-section">
-                    <h3>✏️ Enter Value for {studentTask.columnName}</h3>
-                    <label htmlFor="annotationValue">
-                      Based on the other data in this row, what should go in the <strong>{studentTask.columnName}</strong> column?
-                    </label>
-                    <textarea
-                      id="annotationValue"
-                      value={submittedValue}
-                      onChange={(e) => setSubmittedValue(e.target.value)}
-                      placeholder="Enter your annotation here..."
-                      rows={4}
-                      disabled={isSubmittingTask}
-                    />
-                    <div className="task-help-text">
-                      <small>Your input will be combined with 2 other students to determine the final value.</small>
-                    </div>
-                    <div className="task-actions">
-                      <button 
-                        className="btn-primary"
-                        onClick={handleSubmitStudentTask}
-                        disabled={isSubmittingTask}
-                      >
-                        <Save size={16} />
-                        {isSubmittingTask ? 'Submitting...' : 'Submit Annotation'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
+              {/* Tab: Admin Annotations & Submissions */}
               {activeTab === 'annotations' && user?.role === 'admin' && (
-              <div className="annotations-container">
-                <h3>Student Annotations & Submissions</h3>
-                
-                {isLoadingAnnotations ? (
-                  <div className="loading-spinner-small"></div>
-                ) : annotations.length === 0 ? (
-                  <div className="no-annotations">
-                    <p>No annotations have been submitted for this dataset yet.</p>
-                  </div>
-                ) : (
-                  <div className="annotations-list">
-                    {/* Filter controls */}
-                    <div className="annotations-filters">
-                      <select 
-                        value={selectedStudentFilter} 
-                        onChange={(e) => setSelectedStudentFilter(e.target.value)}
-                        className="filter-select"
-                      >
-                        <option value="all">All Students</option>
-                        {[...new Map(annotations.map(a => [a.student_id, a])).values()].map(student => (
-                          <option key={student.student_id} value={student.student_id}>
-                            {student.student_name}
-                          </option>
-                        ))}
-                      </select>
+                <div className="admin-annotations-container">
+                  <h3>📋 All Annotations & Submissions</h3>
+                  
+                  {isLoadingAnnotations ? (
+                    <div className="loading-spinner-small">Loading annotations...</div>
+                  ) : annotations.length === 0 ? (
+                    <div className="no-annotations">
+                      <p>No annotations or submissions for this dataset yet.</p>
+                      <p className="hint-text">Students haven't submitted any annotations for this dataset.</p>
                     </div>
-                    
-                    {/* Consensus Results Section - Table View */}
-                    {consensus.length > 0 && (
-                      <div className="consensus-section">
-                        <h4>✅ Final Consensus Values (Written to CSV)</h4>
-                        <div className="table-responsive">
-                          <table className="data-table consensus-table">
-                            <thead>
-                              <tr>
-                                <th>Row #</th>
-                                <th>Column Name</th>
-                                <th>Final Value</th>
-                                <th>Contributions</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {consensus.map(c => (
-                                <tr key={`${c.row_index}-${c.column_name}`}>
-                                  <td className="text-center">{c.row_index + 1}</td>
-                                  <td className="column-name-cell">{c.column_name}</td>
-                                  <td className="consensus-value-cell">
-                                    <span className="consensus-badge">{c.consensus_value}</span>
-                                  </td>
-                                  <td className="text-center">
-                                    <span className="contribution-count">{c.contribution_count} student{c.contribution_count !== 1 ? 's' : ''}</span>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                  ) : (
+                    <>
+                      <div className="annotations-filters">
+                        <select 
+                          value={selectedStudentFilter} 
+                          onChange={(e) => setSelectedStudentFilter(e.target.value)}
+                          className="filter-select"
+                        >
+                          <option value="all">All Students</option>
+                          {[...new Set(annotations.map(a => a.student_name).filter(Boolean))].map(name => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
+                        <select 
+                          value={selectedValueFilter} 
+                          onChange={(e) => setSelectedValueFilter(e.target.value)}
+                          className="filter-select"
+                        >
+                          <option value="all">All Values</option>
+                          {[...new Set(annotations.map(a => a.selected_value).filter(Boolean))].map(val => (
+                            <option key={val} value={val}>{val}</option>
+                          ))}
+                        </select>
+                        <button 
+                          className="refresh-btn"
+                          onClick={() => loadAnnotations(selectedDataset.id)}
+                        >
+                          <RefreshCw size={16} />
+                          Refresh
+                        </button>
                       </div>
-                    )}
-                    
-                    {/* Individual Submissions Section - Unified Table View */}
-                    <div className="submissions-section">
-                      <h4>📝 Individual Student Submissions</h4>
+                      
                       <div className="table-responsive">
-                        <table className="data-table submissions-table">
+                        <table className="data-table annotations-table">
                           <thead>
                             <tr>
-                              <th>Student Name</th>
-                              <th>Status</th>
-                              <th>Column</th>
+                              <th>Student</th>
+                              <th>Label Column</th>
                               <th>Row #</th>
-                              <th>Submitted Value</th>
                               <th>Original Value</th>
-                              <th>Submitted At</th>
+                              <th>Selected Value</th>
+                              <th>Status</th>
+                              <th>Submitted On</th>
                             </tr>
                           </thead>
                           <tbody>
                             {annotations
-                              .filter(a => selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter)
-                              .map(annotation => (
-                                <tr key={annotation.assignment_id} className={`submission-row status-${annotation.status}`}>
-                                  <td className="student-name-cell">
-                                  <div className="student-info">
-                                    <span className="student-full-name">{annotation.student_name}</span>
-                                  </div>
-                                </td>
+                              .filter(a => selectedStudentFilter === 'all' || a.student_name === selectedStudentFilter)
+                              .filter(a => selectedValueFilter === 'all' || a.selected_value === selectedValueFilter)
+                              .map((annotation, idx) => (
+                                <tr key={annotation.assignment_id || idx} className={`annotation-row status-${annotation.status}`}>
                                   <td>
-                                    <span className={`submission-status-badge ${annotation.status}`}>
-                                      {annotation.status === 'submitted' ? '✓ Submitted' : '⏳ Pending'}
-                                    </span>
+                                    <div className="student-info">
+                                      <span className="student-name">{annotation.student_name || 'Unknown'}</span>
+                                      <span className="student-email">{annotation.student_email || ''}</span>
+                                    </div>
                                   </td>
-                                  <td className="column-name-cell">{annotation.column_name}</td>
-                                  <td className="text-center">{annotation.row_index + 1}</td>
-                                  <td className="submitted-value-cell">
-                                    {annotation.submitted_value ? (
-                                      <span className="submitted-value">{annotation.submitted_value}</span>
-                                    ) : (
-                                      <span className="empty-value">—</span>
+                                  <td>
+                                    <span className="column-name-tag">{annotation.column_name}</span>
+                                    {annotation.label_description && (
+                                      <div className="column-desc-tooltip">{annotation.label_description}</div>
                                     )}
                                   </td>
+                                  <td className="text-center">#{annotation.row_index + 1}</td>
                                   <td className="original-value-cell">
-                                    {annotation.original_value ? (
-                                      annotation.original_value
+                                    {annotation.original_value || <span className="empty-value">—</span>}
+                                  </td>
+                                  <td className="selected-value-cell">
+                                    {annotation.selected_value ? (
+                                      <span className="selected-value-badge">{annotation.selected_value}</span>
                                     ) : (
-                                      <span className="empty-value">(empty)</span>
+                                      <span className="pending-value">Not yet submitted</span>
                                     )}
+                                  </td>
+                                  <td>
+                                    <span className={`status-badge ${annotation.status || 'pending'}`}>
+                                      {annotation.status === 'submitted' ? '✅ Submitted' : '⏳ Pending'}
+                                    </span>
                                   </td>
                                   <td className="date-cell">
                                     {annotation.submitted_at ? (
@@ -1457,7 +1540,7 @@ function Dashboard() {
                                         {new Date(annotation.submitted_at).toLocaleDateString()}
                                       </span>
                                     ) : (
-                                      <span className="pending-text">Pending</span>
+                                      <span className="pending-text">—</span>
                                     )}
                                   </td>
                                 </tr>
@@ -1466,109 +1549,432 @@ function Dashboard() {
                         </table>
                       </div>
                       
-                      {/* Summary stats */}
-                      <div className="submissions-summary">
+                      {/* Summary Statistics */}
+                      <div className="annotations-summary">
                         <div className="summary-stat">
-                          <span className="stat-label">Total Submissions:</span>
-                          <span className="stat-value">{annotations.filter(a => selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter).length}</span>
+                          <span className="stat-label">Total Annotations:</span>
+                          <span className="stat-value">{annotations.length}</span>
                         </div>
                         <div className="summary-stat">
                           <span className="stat-label">Submitted:</span>
                           <span className="stat-value submitted">
-                            {annotations.filter(a => (selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter) && a.status === 'submitted').length}
+                            {annotations.filter(a => a.status === 'submitted').length}
                           </span>
                         </div>
                         <div className="summary-stat">
                           <span className="stat-label">Pending:</span>
                           <span className="stat-value pending">
-                            {annotations.filter(a => (selectedStudentFilter === 'all' || a.student_id == selectedStudentFilter) && a.status !== 'submitted').length}
+                            {annotations.filter(a => a.status !== 'submitted').length}
+                          </span>
+                        </div>
+                        <div className="summary-stat">
+                          <span className="stat-label">Unique Students:</span>
+                          <span className="stat-value">
+                            {new Set(annotations.map(a => a.student_name).filter(Boolean)).size}
                           </span>
                         </div>
                       </div>
-                    </div>
+                      
+                      {/* Consensus Results Section */}
+                      {consensus.length > 0 && (
+                        <div className="consensus-results">
+                          <h4>✅ Consensus Results</h4>
+                          <div className="table-responsive">
+                            <table className="data-table consensus-table">
+                              <thead>
+                                <tr>
+                                  <th>Column</th>
+                                  <th>Row</th>
+                                  <th>Consensus Value</th>
+                                  <th>Contributions</th>
+                                  <th>Resolved</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {consensus.map((item, idx) => (
+                                  <tr key={idx}>
+                                    <td>{item.column_name}</td>
+                                    <td>#{item.row_index + 1}</td>
+                                    <td className="consensus-value">{item.consensus_value}</td>
+                                    <td>{item.contribution_count}</td>
+                                    <td>
+                                      {item.is_resolved ? (
+                                        <span className="resolved-badge">✅ Resolved</span>
+                                      ) : (
+                                        <span className="pending-badge">⏳ Pending</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              
+              {/* Tab 2: Student Label Annotation Task */}
+              {activeTab === 'task' && user?.role === 'student' && (
+                  <div className="student-task-container">
+                      {!studentTask ? (
+                          // No active task - show label selector
+                          <div className="no-task-view">
+                              <div className="task-header-icon">
+                                  <Tag size={48} />
+                              </div>
+                              <h3>Label Annotation Tasks</h3>
+                              <p>Select which column you'd like to help label. You can switch between different labels anytime!</p>
+                              
+                              <LabelSelector 
+                                  datasetId={selectedDataset?.id} 
+                                  onLabelSelected={(assignment) => {
+                                      setStudentTask(assignment);
+                                      setSubmittedValue('');
+                                      setTaskMessage(null);
+                                  }}
+                                  user={user}
+                              />
+                          </div>
+                      ) : (
+                          // Active task - show the annotation interface
+                          <>
+                              {/* Back button to go back to label selection */}
+                              <button 
+                                  className="back-to-labels-btn"
+                                  onClick={() => {
+                                      setStudentTask(null);
+                                      setSubmittedValue('');
+                                      setTaskMessage(null);
+                                  }}
+                              >
+                                  ← Back to label selection
+                              </button>
+
+                              {taskMessage && (
+                                  <div className={`task-message ${taskMessage.type}`}>
+                                      {taskMessage.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+                                      <span>{taskMessage.text}</span>
+                                  </div>
+                              )}
+                              
+                              {/* Limit Info Banner */}
+                              {studentTask.limitInfo && (
+                                <div className="limit-info-banner">
+                                    <div className="limit-stats">
+                                        <span>📊 Your progress for this dataset:</span>
+                                        <span className="limit-count">
+                                            {studentTask.limitInfo.totalUsed} / {studentTask.limitInfo.maxAllowed} annotations
+                                        </span>
+                                    </div>
+                                    <div className="limit-progress-bar">
+                                        <div 
+                                            className="limit-progress-fill"
+                                            style={{ 
+                                                width: studentTask.limitInfo.totalUsed > 0 
+                                                    ? `${(studentTask.limitInfo.totalUsed / studentTask.limitInfo.maxAllowed) * 100}%` 
+                                                    : '0%'
+                                            }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            )}
+                              
+                              <div className="task-info-section">
+                                  <div className="task-details">
+                                      <div className="detail-card">
+                                          <h4>🎯 Your Task</h4>
+                                          <p><strong>Column to label:</strong> <span className="highlight-column">{studentTask.columnName}</span></p>
+                                          {studentTask.labelDescription && (
+                                              <p><strong>Instructions:</strong> {studentTask.labelDescription}</p>
+                                          )}
+                                      </div>
+                                  </div>
+                              </div>
+
+                              {/* Current Row Data - Show ONLY the display column */}
+                              <div className="task-data-section">
+                                  <h3>📊 Current Row Data</h3>
+                                  <p className="task-context">
+                                      Based on the <strong style={{color: '#4f46e5'}}>{studentTask.displayColumn || studentTask.columnName}</strong> column below, 
+                                      what label should be assigned to <strong>{studentTask.columnName}</strong>?
+                                  </p>
+                                  <div className="data-preview">
+                                      <table className="row-data-table">
+                                          <thead>
+                                              <tr>
+                                                  <th>Column</th>
+                                                  <th>Value</th>
+                                              </tr>
+                                          </thead>
+                                          <tbody>
+                                              {/* Show the display column value */}
+                                              {studentTask.rowData && Object.entries(studentTask.rowData).map(([key, value]) => {
+                                                  // Check if this is the display column
+                                                  const isDisplayColumn = key === studentTask.displayColumn;
+                                                  const isLabelColumn = key === 'current_' + studentTask.columnName;
+                                                  
+                                                  if (isDisplayColumn) {
+                                                      return (
+                                                          <tr key={key} className="display-column-row highlight-row">
+                                                              <td className="column-name">
+                                                                  <strong>{key}</strong> 
+                                                                  <span className="display-badge">📌 base your label on this</span>
+                                                              </td>
+                                                              <td className="column-value display-value">
+                                                                  <span className="display-value-text">{value || '—'}</span>
+                                                              </td>
+                                                          </tr>
+                                                      );
+                                                  }
+                                                  
+                                                  if (isLabelColumn) {
+                                                      return (
+                                                          <tr key={key} className="target-column">
+                                                              <td className="column-name">
+                                                                  <strong>{studentTask.columnName}</strong> 
+                                                                  <span className="needs-label-badge">✏️ needs your label</span>
+                                                              </td>
+                                                              <td className="column-value">
+                                                                  <span className="empty-value">[Select a value below]</span>
+                                                              </td>
+                                                          </tr>
+                                                      );
+                                                  }
+                                                  
+                                                  return null;
+                                              })}
+                                          </tbody>
+                                      </table>
+                                  </div>
+                                  
+                                  {/* Show context: other columns as a compact preview */}
+                                  {studentTask.rowData && Object.keys(studentTask.rowData).length > 2 && (
+                                      <div className="row-context">
+                                          <details>
+                                              <summary>📋 View full row context (other columns)</summary>
+                                              <table className="context-table">
+                                                  <thead>
+                                                      <tr>
+                                                          <th>Column</th>
+                                                          <th>Value</th>
+                                                      </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                      {studentTask.rowData && Object.entries(studentTask.rowData).map(([key, value]) => {
+                                                          const isDisplayColumn = key === studentTask.displayColumn;
+                                                          const isLabelColumn = key === 'current_' + studentTask.columnName;
+                                                          if (!isDisplayColumn && !isLabelColumn) {
+                                                              return (
+                                                                  <tr key={key}>
+                                                                      <td className="column-name">{key}</td>
+                                                                      <td className="column-value">{value || '—'}</td>
+                                                                  </tr>
+                                                              );
+                                                          }
+                                                          return null;
+                                                      })}
+                                                  </tbody>
+                                              </table>
+                                          </details>
+                                      </div>
+                                  )}
+                              </div>
+
+                              {/* Value Selector */}
+                              <div className="task-input-section">
+                                  <h3>✏️ Select Value for {studentTask.columnName}</h3>
+                                  
+                                  {studentTask.possibleValues && studentTask.possibleValues.length > 0 ? (
+                                      <div className="value-selector predefined">
+                                          <label>Choose the appropriate label:</label>
+                                          <div className="value-buttons">
+                                              {studentTask.possibleValues.map((value, idx) => (
+                                                  <button
+                                                      key={idx}
+                                                      type="button"
+                                                      className={`value-btn ${submittedValue === value ? 'selected' : ''}`}
+                                                      onClick={() => setSubmittedValue(value)}
+                                                      disabled={isSubmittingTask}
+                                                  >
+                                                      {submittedValue === value && <Check size={14} />}
+                                                      {value}
+                                                  </button>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  ) : (
+                                      <div className="value-selector free-text">
+                                          <label htmlFor="annotationValue">
+                                              Enter the appropriate label:
+                                          </label>
+                                          <textarea
+                                              id="annotationValue"
+                                              value={submittedValue}
+                                              onChange={(e) => setSubmittedValue(e.target.value)}
+                                              placeholder="Enter your annotation here..."
+                                              rows={3}
+                                              disabled={isSubmittingTask}
+                                          />
+                                      </div>
+                                  )}
+                                  
+                                  <div className="task-help-text">
+                                      <small>Based on the <strong>{studentTask.displayColumn || studentTask.columnName}</strong> value above, select the appropriate label for <strong>{studentTask.columnName}</strong></small>
+                                  </div>
+                                  
+                                  <div className="task-actions">
+                                      <button 
+                                          className="btn-primary"
+                                          onClick={handleSubmitStudentTask}
+                                          disabled={isSubmittingTask}
+                                      >
+                                          <Save size={16} />
+                                          {isSubmittingTask ? 'Submitting...' : 'Submit Annotation'}
+                                      </button>
+                                      <button 
+                                          className="btn-secondary"
+                                          onClick={() => {
+                                              setStudentTask(null);
+                                              setSubmittedValue('');
+                                              setTaskMessage(null);
+                                          }}
+                                          disabled={isSubmittingTask}
+                                      >
+                                          Choose Different Label
+                                      </button>
+                                  </div>
+                              </div>
+                          </>
+                      )}
                   </div>
-                )}
-              </div>
+              )}
+
+            {/* Tab: My Contributions (Student View) */}
+            {activeTab === 'myContributions' && user?.role === 'student' && (
+                <div className="my-contributions-container">
+                    <h3>📋 My Label Contributions to this Dataset</h3>
+                    
+                    {annotations.length === 0 ? (
+                        <div className="no-annotations">
+                            <p>You haven't made any label contributions to this dataset yet.</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="table-responsive">
+                                <table className="data-table contributions-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Status</th>
+                                            <th>Label Column</th>
+                                            <th>Row #</th>
+                                            <th>Your Selected Value</th>
+                                            <th>Row Data Context</th>
+                                            <th>Submitted On</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {annotations.map(annotation => (
+                                            <tr key={annotation.assignment_id} className={`contribution-row status-${annotation.status}`}>
+                                                <td>
+                                                    <span className={`submission-status-badge ${annotation.status}`}>
+                                                        {annotation.status === 'submitted' ? '✓ Submitted' : '⏳ Pending'}
+                                                    </span>
+                                                </td>
+                                                <td className="column-name-cell">
+                                                    <span className="label-column-name">{annotation.column_name}</span>
+                                                    {annotation.label_description && (
+                                                        <div className="label-desc-hover">{annotation.label_description}</div>
+                                                    )}
+                                                </td>
+                                                <td className="text-center">#{annotation.row_index + 1}</td>
+                                                <td className="submitted-value-cell">
+                                                    {annotation.selected_value ? (
+                                                        <span className="selected-value-badge">{annotation.selected_value}</span>
+                                                    ) : (
+                                                        <span className="empty-value">Not yet submitted</span>
+                                                    )}
+                                                </td>
+                                                <td className="row-data-preview-cell">
+                                                    <div className="row-data-preview">
+                                                        {(() => {
+                                                            try {
+                                                                const rowData = JSON.parse(annotation.row_data || '{}');
+                                                                // Find the target column value to show context
+                                                                const targetValue = rowData[annotation.column_name];
+                                                                const otherEntries = Object.entries(rowData)
+                                                                    .filter(([key]) => key !== annotation.column_name)
+                                                                    .slice(0, 2);
+                                                                
+                                                                return (
+                                                                    <>
+                                                                        {targetValue !== undefined && (
+                                                                            <span className="row-data-preview-item target-highlight">
+                                                                                <strong>{annotation.column_name}:</strong> {String(targetValue).substring(0, 40)}
+                                                                            </span>
+                                                                        )}
+                                                                        {otherEntries.map(([key, val]) => (
+                                                                            <span key={key} className="row-data-preview-item">
+                                                                                <strong>{key}:</strong> {String(val).substring(0, 30)}
+                                                                            </span>
+                                                                        ))}
+                                                                    </>
+                                                                );
+                                                            } catch (e) {
+                                                                return <span className="empty-value">—</span>;
+                                                            }
+                                                        })()}
+                                                    </div>
+                                                </td>
+                                                <td className="date-cell">
+                                                    {annotation.submitted_at ? (
+                                                        <span title={new Date(annotation.submitted_at).toLocaleString()}>
+                                                            {new Date(annotation.submitted_at).toLocaleDateString()}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="pending-text">—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div className="contributions-summary">
+                                <div className="summary-stat">
+                                    <span className="stat-label">Total Contributions:</span>
+                                    <span className="stat-value">{annotations.length}</span>
+                                </div>
+                                <div className="summary-stat">
+                                    <span className="stat-label">Completed:</span>
+                                    <span className="stat-value submitted">
+                                        {annotations.filter(a => a.status === 'submitted').length}
+                                    </span>
+                                </div>
+                                <div className="summary-stat">
+                                    <span className="stat-label">Pending:</span>
+                                    <span className="stat-value pending">
+                                        {annotations.filter(a => a.status !== 'submitted').length}
+                                    </span>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
             )}
 
-            {/* Tab 4: My Contributions (Student View) - Also converted to table */}
-            {activeTab === 'myContributions' && user?.role === 'student' && (
-              <div className="my-contributions-container">
-                <h3>📋 My Contributions to this Dataset</h3>
-                
-                {annotations.length === 0 ? (
-                  <div className="no-annotations">
-                    <p>You haven't made any contributions to this dataset yet.</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="table-responsive">
-                      <table className="data-table contributions-table">
-                        <thead>
-                          <tr>
-                            <th>Status</th>
-                            <th>Column</th>
-                            <th>Row #</th>
-                            <th>Your Submitted Value</th>
-                            <th>Task Description</th>
-                            <th>Submitted On</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {annotations.map(annotation => (
-                            <tr key={annotation.assignment_id} className={`contribution-row status-${annotation.status}`}>
-                              <td>
-                                <span className={`submission-status-badge ${annotation.status}`}>
-                                  {annotation.status === 'submitted' ? '✓ Submitted' : '⏳ Pending'}
-                                </span>
-                              </td>
-                              <td className="column-name-cell">{annotation.column_name}</td>
-                              <td className="text-center">{annotation.row_index + 1}</td>
-                              <td className="submitted-value-cell">
-                                {annotation.submitted_value ? (
-                                  <span className="submitted-value">{annotation.submitted_value}</span>
-                                ) : (
-                                  <span className="empty-value">Not yet submitted</span>
-                                )}
-                              </td>
-                              <td className="task-desc-cell">
-                                {annotation.task_description || `Fill in ${annotation.column_name} for this row`}
-                              </td>
-                              <td className="date-cell">
-                                {annotation.submitted_at ? (
-                                  <span title={new Date(annotation.submitted_at).toLocaleString()}>
-                                    {new Date(annotation.submitted_at).toLocaleDateString()}
-                                  </span>
-                                ) : (
-                                  <span className="pending-text">—</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    
-                    <div className="contributions-summary">
-                      <div className="summary-stat">
-                        <span className="stat-label">Total Contributions:</span>
-                        <span className="stat-value">{annotations.length}</span>
-                      </div>
-                      <div className="summary-stat">
-                        <span className="stat-label">Completed:</span>
-                        <span className="stat-value submitted">
-                          {annotations.filter(a => a.status === 'submitted').length}
-                        </span>
-                      </div>
-                      <div className="summary-stat">
-                        <span className="stat-label">Pending:</span>
-                        <span className="stat-value pending">
-                          {annotations.filter(a => a.status !== 'submitted').length}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                )}
+            {activeTab === 'labelConfig' && user?.role === 'admin' && (
+              <div className="label-config-tab">
+                <AdminLabelConfig 
+                  datasetId={selectedDataset.id}
+                  onConfigSaved={() => {
+                    // Refresh annotations or show success
+                    loadAnnotations(selectedDataset.id);
+                  }}
+                />
               </div>
             )}
             </div>

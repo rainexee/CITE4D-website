@@ -1444,7 +1444,7 @@ async function checkStudentDatasetLimit(studentId, datasetId) {
         // Get student's current annotation count for this dataset
         const [counts] = await db.execute(
             `SELECT annotation_count 
-             FROM StudentDatasetAnnotationCount 
+             FROM StudentLabelCount 
              WHERE dataset_id = ? AND student_id = ?`,
             [datasetId, studentId]
         );
@@ -1468,7 +1468,7 @@ async function checkStudentDatasetLimit(studentId, datasetId) {
 async function incrementStudentDatasetCount(studentId, datasetId) {
     try {
         const [result] = await db.execute(
-            `INSERT INTO StudentDatasetAnnotationCount (dataset_id, student_id, annotation_count)
+            `INSERT INTO StudentLabelCount (dataset_id, student_id, annotation_count)
              VALUES (?, ?, 1)
              ON DUPLICATE KEY UPDATE 
              annotation_count = annotation_count + 1`,
@@ -1487,7 +1487,7 @@ async function getStudentDatasetCount(studentId, datasetId) {
     try {
         const [counts] = await db.execute(
             `SELECT annotation_count 
-             FROM StudentDatasetAnnotationCount 
+             FROM StudentLabelCount 
              WHERE dataset_id = ? AND student_id = ?`,
             [datasetId, studentId]
         );
@@ -1755,7 +1755,7 @@ app.get('/api/admin/dataset/:id/student-progress', async (req, res) => {
                 d.max_annotation as max_allowed
             FROM User u
             CROSS JOIN Dataset d
-            LEFT JOIN StudentDatasetAnnotationCount sdac 
+            LEFT JOIN StudentLabelCount sdac 
                 ON sdac.student_id = u.user_id 
                 AND sdac.dataset_id = d.dataset_id
             WHERE u.role = 'student' AND d.dataset_id = ?
@@ -1771,6 +1771,1143 @@ app.get('/api/admin/dataset/:id/student-progress', async (req, res) => {
     } catch (error) {
         console.error('Error getting student progress:', error);
         res.status(500).json({ success: false, error: 'Failed to get student progress' });
+    }
+});
+
+
+
+app.post('/api/admin/dataset/:id/labels', async (req, res) => {
+    let connection;
+    
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        if (users[0]?.role !== 'admin') {
+            return res.status(403).json({ success: false, error: 'Admin access required' });
+        }
+        
+        const datasetId = req.params.id;
+        const { labelColumns } = req.body;
+        
+        if (!labelColumns || !Array.isArray(labelColumns) || labelColumns.length === 0) {
+            return res.status(400).json({ success: false, error: 'Label columns configuration required' });
+        }
+        
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+        
+        // Clear existing label columns for this dataset
+        await connection.execute('DELETE FROM DatasetLabelColumn WHERE dataset_id = ?', [datasetId]);
+        
+        // Insert new label columns
+        for (const label of labelColumns) {
+            const columnName = label.columnName || null;
+            const displayColumn = label.displayColumn || label.columnName || null;
+            const description = label.description || null;
+            const possibleValues = label.possibleValues || [];
+            
+            if (!columnName) {
+                throw new Error('Column name is required for each label');
+            }
+            if (!displayColumn) {
+                throw new Error('Display column is required for each label');
+            }
+            
+            await connection.execute(
+                `INSERT INTO DatasetLabelColumn (dataset_id, column_name, display_column, description, possible_values)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [
+                    datasetId, 
+                    columnName, 
+                    displayColumn,
+                    description,
+                    JSON.stringify(possibleValues)
+                ]
+            );
+        }
+        
+        await connection.commit();
+        
+        res.json({
+            success: true,
+            message: `Configured ${labelColumns.length} label columns for dataset`
+        });
+        
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Error setting up label columns:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to configure label columns' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// Admin: Get label columns for a dataset (Updated with display_column)
+app.get('/api/admin/dataset/:id/labels', async (req, res) => {
+    try {
+        const datasetId = req.params.id;
+        
+        const [labels] = await db.execute(`
+            SELECT * FROM DatasetLabelColumn 
+            WHERE dataset_id = ? AND is_active = TRUE
+            ORDER BY label_column_id
+        `, [datasetId]);
+        
+        const parsedLabels = labels.map(label => ({
+            ...label,
+            description: label.description || '',
+            display_column: label.display_column || label.column_name, // Fallback
+            possible_values: label.possible_values ? JSON.parse(label.possible_values) : []
+        }));
+        
+        res.json({
+            success: true,
+            labels: parsedLabels
+        });
+        
+    } catch (error) {
+        console.error('Error fetching label columns:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch label columns' });
+    }
+});
+
+// Helper: Create a new label assignment for a student
+async function createLabelAssignment(studentId, specificDatasetId = null) {
+    const connection = await db.getConnection();
+    
+    try {
+        await connection.beginTransaction();
+        
+        // Check if student has reached any dataset limits
+        let datasetLimitQuery = `
+            SELECT d.dataset_id, d.max_annotation, 
+                   COALESCE(slc.annotation_count, 0) as current_count
+            FROM Dataset d
+            LEFT JOIN StudentLabelCount slc ON d.dataset_id = slc.dataset_id AND slc.student_id = ?
+            WHERE d.is_public = 1
+            AND (slc.annotation_count IS NULL OR slc.annotation_count < d.max_annotation)
+        `;
+        
+        const queryParams = [studentId];
+        
+        if (specificDatasetId) {
+            datasetLimitQuery += ` AND d.dataset_id = ?`;
+            queryParams.push(specificDatasetId);
+        }
+        
+        datasetLimitQuery += ` ORDER BY slc.annotation_count ASC LIMIT 1`;
+        
+        const [datasetLimits] = await connection.execute(datasetLimitQuery, queryParams);
+        
+        if (datasetLimits.length === 0) {
+            return null;
+        }
+        
+        const datasetId = datasetLimits[0].dataset_id;
+        
+        // Get active label columns
+        const [labelColumns] = await connection.execute(`
+            SELECT dlc.*, d.file_name, d.title, d.description, d.max_annotation
+            FROM DatasetLabelColumn dlc
+            JOIN Dataset d ON dlc.dataset_id = d.dataset_id
+            WHERE dlc.dataset_id = ? AND dlc.is_active = TRUE
+        `, [datasetId]);
+        
+        if (labelColumns.length === 0) {
+            return null;
+        }
+        
+        // Get CSV file info
+        const [dataset] = await connection.execute(
+            'SELECT file_name, title, description, max_annotation FROM Dataset WHERE dataset_id = ?',
+            [datasetId]
+        );
+        
+        if (dataset.length === 0) return null;
+        
+        // Parse CSV to rows
+        const filePath = path.join(__dirname, '../uploads/datasets', dataset[0].file_name);
+        const rows = await parseCSVToRows(filePath);
+        
+        // Find rows that need annotations
+        const availableRows = [];
+        
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            for (const labelCol of labelColumns) {
+                const [consensus] = await connection.execute(
+                    'SELECT contribution_count, is_resolved FROM LabelConsensus WHERE dataset_id = ? AND label_column_id = ? AND row_index = ?',
+                    [datasetId, labelCol.label_column_id, rowIndex]
+                );
+                
+                const needsMoreContributions = consensus.length === 0 || 
+                    (!consensus[0].is_resolved && consensus[0].contribution_count < 3);
+                
+                if (needsMoreContributions) {
+                    const [existing] = await connection.execute(
+                        'SELECT * FROM StudentLabelAssignment WHERE dataset_id = ? AND label_column_id = ? AND row_index = ? AND student_id = ?',
+                        [datasetId, labelCol.label_column_id, rowIndex, studentId]
+                    );
+                    
+                    if (existing.length === 0) {
+                        const rowData = rows[rowIndex];
+                        const displayColumn = labelCol.display_column || labelCol.column_name;
+                        
+                        const filteredRowData = {};
+                        
+                        if (rowData[displayColumn] !== undefined && rowData[displayColumn] !== '') {
+                            filteredRowData[displayColumn] = rowData[displayColumn];
+                        } else {
+                            const firstCol = Object.keys(rowData)[0];
+                            if (firstCol) {
+                                filteredRowData[firstCol] = rowData[firstCol] || 'No data';
+                            } else {
+                                filteredRowData['value'] = 'No data available';
+                            }
+                        }
+                        
+                        if (rowData[labelCol.column_name] !== undefined) {
+                            filteredRowData['current_' + labelCol.column_name] = rowData[labelCol.column_name];
+                        }
+                        
+                        availableRows.push({
+                            labelColumn: labelCol,
+                            rowIndex: rowIndex,
+                            rowData: filteredRowData,
+                            displayColumn: displayColumn,
+                            originalRowData: rowData
+                        });
+                    }
+                }
+            }
+        }
+        
+        if (availableRows.length === 0) {
+            await connection.commit();
+            return null;
+        }
+        
+        const randomIndex = Math.floor(Math.random() * availableRows.length);
+        const selected = availableRows[randomIndex];
+        
+        const [result] = await connection.execute(`
+            INSERT INTO StudentLabelAssignment 
+            (dataset_id, label_column_id, student_id, row_index, row_data)
+            VALUES (?, ?, ?, ?, ?)
+        `, [datasetId, selected.labelColumn.label_column_id, studentId, selected.rowIndex, JSON.stringify(selected.rowData)]);
+        
+        await connection.commit();
+        
+        // Return the assignment WITHOUT limitInfo - it will be added by the caller
+        return {
+            id: result.insertId,
+            datasetId: datasetId,
+            datasetTitle: dataset[0].title,
+            datasetDescription: dataset[0].description,
+            columnName: selected.labelColumn.column_name,
+            displayColumn: selected.displayColumn,
+            labelDescription: selected.labelColumn.description || `Please label the ${selected.labelColumn.column_name} column`,
+            rowIndex: selected.rowIndex,
+            rowData: selected.rowData,
+            possibleValues: JSON.parse(selected.labelColumn.possible_values || '[]')
+        };
+        
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error in createLabelAssignment:', error);
+        throw error;
+    } finally {
+        connection.release();
+    }
+}
+
+// Student: Get next annotation task (with clickable options)
+
+
+app.get('/api/student/annotation-task', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        if (users[0]?.role !== 'student') {
+            return res.status(403).json({ success: false, error: 'Student access only' });
+        }
+        
+        const studentId = req.session.userId;
+        const specificDatasetId = req.query.dataset;
+        
+        const connection = await db.getConnection();
+        
+        try {
+            let assignmentQuery = `
+                SELECT 
+                    sla.*,
+                    dlc.column_name,
+                    dlc.display_column,
+                    dlc.description as label_description,
+                    dlc.possible_values,
+                    d.title as dataset_title,
+                    d.description as dataset_description,
+                    d.file_name,
+                    d.max_annotation
+                FROM StudentLabelAssignment sla
+                JOIN DatasetLabelColumn dlc ON sla.label_column_id = dlc.label_column_id
+                JOIN Dataset d ON sla.dataset_id = d.dataset_id
+                WHERE sla.student_id = ? AND sla.status = 'pending'
+            `;
+            
+            const queryParams = [studentId];
+            
+            if (specificDatasetId) {
+                assignmentQuery += ` AND sla.dataset_id = ?`;
+                queryParams.push(specificDatasetId);
+            }
+            
+            assignmentQuery += ` LIMIT 1`;
+            
+            const [assignments] = await connection.execute(assignmentQuery, queryParams);
+            
+            if (assignments.length > 0) {
+                const assignment = assignments[0];
+                const rowData = JSON.parse(assignment.row_data || '{}');
+                const possibleValues = JSON.parse(assignment.possible_values || '[]');
+                
+                // Get current count for limit info
+                const [counts] = await connection.execute(
+                    `SELECT annotation_count FROM StudentLabelCount 
+                     WHERE dataset_id = ? AND student_id = ?`,
+                    [assignment.dataset_id, studentId]
+                );
+                const currentCount = counts.length > 0 ? counts[0].annotation_count : 0;
+                const maxAllowed = assignment.max_annotation || 5;
+                
+                connection.release();
+                
+                return res.json({
+                    success: true,
+                    hasAssignment: true,
+                    assignment: {
+                        id: assignment.assignment_id,
+                        datasetId: assignment.dataset_id,
+                        datasetTitle: assignment.dataset_title,
+                        datasetDescription: assignment.dataset_description,
+                        columnName: assignment.column_name,
+                        displayColumn: assignment.display_column || assignment.column_name,
+                        labelDescription: assignment.label_description,
+                        rowIndex: assignment.row_index,
+                        rowData: rowData,
+                        possibleValues: possibleValues,
+                        limitInfo: {
+                            remaining: maxAllowed - currentCount,
+                            totalUsed: currentCount,
+                            maxAllowed: maxAllowed
+                        }
+                    }
+                });
+            }
+            
+            // No pending assignment - create a new one
+            const newAssignment = await createLabelAssignment(studentId, specificDatasetId);
+            
+            connection.release();
+            
+            if (newAssignment) {
+                // Get the current count for limit info
+                const [counts] = await db.execute(
+                    `SELECT annotation_count FROM StudentLabelCount 
+                     WHERE dataset_id = ? AND student_id = ?`,
+                    [newAssignment.datasetId, studentId]
+                );
+                const currentCount = counts.length > 0 ? counts[0].annotation_count : 0;
+                const maxAllowed = newAssignment.max_annotation || 5;
+                
+                // Add limitInfo to the new assignment
+                newAssignment.limitInfo = {
+                    remaining: maxAllowed - currentCount,
+                    totalUsed: currentCount,
+                    maxAllowed: maxAllowed
+                };
+                
+                res.json({
+                    success: true,
+                    hasAssignment: true,
+                    assignment: newAssignment
+                });
+            } else {
+                res.json({
+                    success: true,
+                    hasAssignment: false,
+                    message: 'No pending annotation tasks available!'
+                });
+            }
+            
+        } catch (error) {
+            connection.release();
+            throw error;
+        }
+        
+    } catch (error) {
+        console.error('Error getting annotation task:', error);
+        res.status(500).json({ success: false, error: 'Failed to get task' });
+    }
+});
+
+// In server.js - Update createLabelAssignment to properly use display_column
+
+async function createLabelAssignment(studentId, specificDatasetId = null) {
+    const connection = await db.getConnection();
+    
+    try {
+        await connection.beginTransaction();
+        
+        // Check if student has reached any dataset limits (or specific dataset)
+        let datasetLimitQuery = `
+            SELECT d.dataset_id, d.max_annotation, 
+                   COALESCE(slc.annotation_count, 0) as current_count
+            FROM Dataset d
+            LEFT JOIN StudentLabelCount slc ON d.dataset_id = slc.dataset_id AND slc.student_id = ?
+            WHERE d.is_public = 1
+            AND (slc.annotation_count IS NULL OR slc.annotation_count < d.max_annotation)
+        `;
+        
+        const queryParams = [studentId];
+        
+        if (specificDatasetId) {
+            datasetLimitQuery += ` AND d.dataset_id = ?`;
+            queryParams.push(specificDatasetId);
+        }
+        
+        datasetLimitQuery += ` ORDER BY slc.annotation_count ASC LIMIT 1`;
+        
+        const [datasetLimits] = await connection.execute(datasetLimitQuery, queryParams);
+        
+        if (datasetLimits.length === 0) {
+            return null;
+        }
+        
+        const datasetId = datasetLimits[0].dataset_id;
+        
+        // Get active label columns for this dataset - INCLUDE display_column
+        const [labelColumns] = await connection.execute(`
+            SELECT dlc.*, d.file_name, d.title, d.description, d.max_annotation
+            FROM DatasetLabelColumn dlc
+            JOIN Dataset d ON dlc.dataset_id = d.dataset_id
+            WHERE dlc.dataset_id = ? AND dlc.is_active = TRUE
+        `, [datasetId]);
+        
+        console.log('Label columns fetched:', labelColumns.map(lc => ({
+            column_name: lc.column_name,
+            display_column: lc.display_column
+        })));
+        
+        if (labelColumns.length === 0) {
+            return null;
+        }
+        
+        // Get CSV file info
+        const [dataset] = await connection.execute(
+            'SELECT file_name, title, description, max_annotation FROM Dataset WHERE dataset_id = ?',
+            [datasetId]
+        );
+        
+        if (dataset.length === 0) return null;
+        
+        // Parse CSV to rows
+        const filePath = path.join(__dirname, '../uploads/datasets', dataset[0].file_name);
+        const rows = await parseCSVToRows(filePath);
+        console.log(`Parsed ${rows.length} rows from CSV`);
+        
+        // Find rows that need annotations for any label column
+        const availableRows = [];
+        
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            for (const labelCol of labelColumns) {
+                // Check if this row already has enough consensus for this label
+                const [consensus] = await connection.execute(
+                    'SELECT contribution_count, is_resolved FROM LabelConsensus WHERE dataset_id = ? AND label_column_id = ? AND row_index = ?',
+                    [datasetId, labelCol.label_column_id, rowIndex]
+                );
+                
+                const needsMoreContributions = consensus.length === 0 || 
+                    (!consensus[0].is_resolved && consensus[0].contribution_count < 3);
+                
+                if (needsMoreContributions) {
+                    // Check if student already assigned to this cell
+                    const [existing] = await connection.execute(
+                        'SELECT * FROM StudentLabelAssignment WHERE dataset_id = ? AND label_column_id = ? AND row_index = ? AND student_id = ?',
+                        [datasetId, labelCol.label_column_id, rowIndex, studentId]
+                    );
+                    
+                    if (existing.length === 0) {
+                        const rowData = rows[rowIndex];
+                        // Get the display column from the label config, fallback to column_name
+                        const displayColumn = labelCol.display_column || labelCol.column_name;
+                        
+                        console.log(`Row ${rowIndex}, displayColumn: ${displayColumn}, value:`, rowData[displayColumn]);
+                        
+                        // Build filtered row data - ONLY include the display column and label column
+                        const filteredRowData = {};
+                        
+                        // Add the display column value
+                        if (rowData[displayColumn] !== undefined && rowData[displayColumn] !== '') {
+                            filteredRowData[displayColumn] = rowData[displayColumn];
+                            console.log(`Added display column '${displayColumn}' with value:`, rowData[displayColumn]);
+                        } else {
+                            // If display column has no value, use a fallback
+                            const firstCol = Object.keys(rowData)[0];
+                            if (firstCol) {
+                                filteredRowData[firstCol] = rowData[firstCol] || 'No data';
+                            } else {
+                                filteredRowData['value'] = 'No data available';
+                            }
+                        }
+                        
+                        // Add the current value of the label column for context
+                        if (rowData[labelCol.column_name] !== undefined) {
+                            filteredRowData['current_' + labelCol.column_name] = rowData[labelCol.column_name];
+                        }
+                        
+                        availableRows.push({
+                            labelColumn: labelCol,
+                            rowIndex: rowIndex,
+                            rowData: filteredRowData,
+                            displayColumn: displayColumn,
+                            originalRowData: rowData
+                        });
+                    }
+                }
+            }
+        }
+        
+        console.log(`Found ${availableRows.length} available rows`);
+        
+        if (availableRows.length === 0) {
+            await connection.commit();
+            return null;
+        }
+        
+        // Select random row
+        const randomIndex = Math.floor(Math.random() * availableRows.length);
+        const selected = availableRows[randomIndex];
+        
+        console.log('Selected displayColumn:', selected.displayColumn);
+        console.log('Selected rowData:', selected.rowData);
+        
+        // Create assignment
+        const [result] = await connection.execute(`
+            INSERT INTO StudentLabelAssignment 
+            (dataset_id, label_column_id, student_id, row_index, row_data)
+            VALUES (?, ?, ?, ?, ?)
+        `, [datasetId, selected.labelColumn.label_column_id, studentId, selected.rowIndex, JSON.stringify(selected.rowData)]);
+        
+        // Get the updated count for limit info
+        const [counts] = await connection.execute(
+            `SELECT annotation_count FROM StudentLabelCount 
+             WHERE dataset_id = ? AND student_id = ?`,
+            [datasetId, studentId]
+        );
+        const currentCount = counts.length > 0 ? counts[0].annotation_count : 0;
+        const maxAllowed = dataset[0].max_annotation || 5;
+        
+        await connection.commit();
+        
+        const assignmentResult = {
+            id: result.insertId,
+            datasetId: datasetId,
+            datasetTitle: dataset[0].title,
+            datasetDescription: dataset[0].description,
+            columnName: selected.labelColumn.column_name,
+            displayColumn: selected.displayColumn, // IMPORTANT: Include this
+            labelDescription: selected.labelColumn.description || `Please label the ${selected.labelColumn.column_name} column`,
+            rowIndex: selected.rowIndex,
+            rowData: selected.rowData,
+            possibleValues: JSON.parse(selected.labelColumn.possible_values || '[]'),
+            limitInfo: {
+                remaining: maxAllowed - (currentCount + 1),
+                totalUsed: currentCount + 1,
+                maxAllowed: maxAllowed
+            }
+        };
+        
+        console.log('Returning assignment with displayColumn:', assignmentResult.displayColumn);
+        console.log('RowData keys:', Object.keys(assignmentResult.rowData));
+        
+        return assignmentResult;
+        
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error in createLabelAssignment:', error);
+        throw error;
+    } finally {
+        connection.release();
+    }
+}
+
+// Helper: Parse CSV to rows
+async function parseCSVToRows(filePath) {
+    const fileContent = await fs.readFile(filePath, 'utf-8');
+    const lines = fileContent.split('\n');
+    
+    if (lines.length < 2) return [];
+    
+    const headers = lines[0].split(',').map(h => h.trim().replace(/["']/g, ''));
+    const rows = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const values = lines[i].split(',').map(v => v.trim().replace(/["']/g, ''));
+        const row = {};
+        headers.forEach((header, idx) => {
+            row[header] = values[idx] || '';
+        });
+        rows.push(row);
+    }
+    
+    return rows;
+}
+
+app.get('/api/dataset/:datasetId/available-labels', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        if (users[0]?.role !== 'student') {
+            return res.status(403).json({ success: false, error: 'Student access only' });
+        }
+        
+        const datasetId = req.params.datasetId;
+        const studentId = req.session.userId;
+        
+        // Get all active label columns for this dataset
+        const [labelColumns] = await db.execute(`
+            SELECT * FROM DatasetLabelColumn 
+            WHERE dataset_id = ? AND is_active = TRUE
+        `, [datasetId]);
+        
+        if (labelColumns.length === 0) {
+            return res.json({ success: true, availableLabels: [] });
+        }
+        
+        // For each label column, check if there are pending rows that need annotations
+        const availableLabels = [];
+        
+        for (const labelCol of labelColumns) {
+            // Get CSV file info
+            const [dataset] = await db.execute(
+                'SELECT file_name, max_annotation FROM Dataset WHERE dataset_id = ?',
+                [datasetId]
+            );
+            
+            if (dataset.length === 0) continue;
+            
+            // Parse CSV to get row count
+            const filePath = path.join(__dirname, '../uploads/datasets', dataset[0].file_name);
+            const rows = await parseCSVToRows(filePath);
+            
+            let pendingCount = 0;
+            let hasUnfinishedAssignment = false;
+            
+            for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+                // Check if student already has a pending assignment for this row/label
+                const [existingAssignment] = await db.execute(`
+                    SELECT * FROM StudentLabelAssignment 
+                    WHERE dataset_id = ? AND label_column_id = ? AND row_index = ? AND student_id = ? AND status = 'pending'
+                `, [datasetId, labelCol.label_column_id, rowIndex, studentId]);
+                
+                if (existingAssignment.length > 0) {
+                    hasUnfinishedAssignment = true;
+                    pendingCount++;
+                    continue;
+                }
+                
+                // Check if this row needs more contributions for this label
+                const [consensus] = await db.execute(`
+                    SELECT contribution_count, is_resolved FROM LabelConsensus 
+                    WHERE dataset_id = ? AND label_column_id = ? AND row_index = ?
+                `, [datasetId, labelCol.label_column_id, rowIndex]);
+                
+                const needsMoreContributions = consensus.length === 0 || 
+                    (!consensus[0].is_resolved && consensus[0].contribution_count < 3);
+                
+                if (needsMoreContributions) {
+                    pendingCount++;
+                }
+            }
+            
+            // Check student's limit for this dataset
+            const limitCheck = await checkStudentDatasetLimit(studentId, datasetId);
+            
+            availableLabels.push({
+                label_column_id: labelCol.label_column_id,
+                column_name: labelCol.column_name,
+                description: labelCol.description || '',
+                possible_values: JSON.parse(labelCol.possible_values || '[]'),
+                pending_count: pendingCount,
+                has_unfinished_assignment: hasUnfinishedAssignment,
+                can_annotate: limitCheck.canAnnotate,
+                remaining_annotations: limitCheck.remaining
+            });
+        }
+        
+        res.json({
+            success: true,
+            availableLabels: availableLabels,
+            datasetTitle: labelColumns.length > 0 ? (await db.execute('SELECT title FROM Dataset WHERE dataset_id = ?', [datasetId]))[0][0]?.title : null
+        });
+        
+    } catch (error) {
+        console.error('Error getting available labels:', error);
+        res.status(500).json({ success: false, error: 'Failed to get available labels' });
+    }
+});
+
+// Get or create assignment for a specific label column
+app.post('/api/student/get-label-assignment', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        if (users[0]?.role !== 'student') {
+            return res.status(403).json({ success: false, error: 'Student access only' });
+        }
+        
+        const { datasetId, labelColumnId } = req.body;
+        const studentId = req.session.userId;
+        
+        // Check if student has a pending assignment for this label column
+        const [existingAssignments] = await db.execute(`
+            SELECT 
+                sla.*,
+                dlc.column_name,
+                dlc.display_column,
+                dlc.description as label_description,
+                dlc.possible_values,
+                d.title as dataset_title,
+                d.description as dataset_description,
+                d.file_name,
+                d.max_annotation
+            FROM StudentLabelAssignment sla
+            JOIN DatasetLabelColumn dlc ON sla.label_column_id = dlc.label_column_id
+            JOIN Dataset d ON sla.dataset_id = d.dataset_id
+            WHERE sla.student_id = ? AND sla.dataset_id = ? AND sla.label_column_id = ? AND sla.status = 'pending'
+            LIMIT 1
+        `, [studentId, datasetId, labelColumnId]);
+        
+        if (existingAssignments.length > 0) {
+            const assignment = existingAssignments[0];
+            const rowData = JSON.parse(assignment.row_data || '{}');
+            const possibleValues = JSON.parse(assignment.possible_values || '[]');
+            const displayColumn = assignment.display_column || assignment.column_name;
+            
+            // Get limit info
+            const [counts] = await db.execute(
+                'SELECT annotation_count FROM StudentLabelCount WHERE dataset_id = ? AND student_id = ?',
+                [datasetId, studentId]
+            );
+            const currentCount = counts.length > 0 ? counts[0].annotation_count : 0;
+            const maxAllowed = assignment.max_annotation || 5;
+            
+            console.log('Existing assignment displayColumn:', displayColumn);
+            console.log('RowData:', rowData);
+            
+            return res.json({
+                success: true,
+                hasAssignment: true,
+                assignment: {
+                    id: assignment.assignment_id,
+                    datasetId: assignment.dataset_id,
+                    datasetTitle: assignment.dataset_title,
+                    datasetDescription: assignment.dataset_description,
+                    columnName: assignment.column_name,
+                    displayColumn: displayColumn,
+                    labelDescription: assignment.label_description,
+                    rowIndex: assignment.row_index,
+                    rowData: rowData,
+                    possibleValues: possibleValues,
+                    limitInfo: {
+                        remaining: maxAllowed - currentCount,
+                        totalUsed: currentCount,
+                        maxAllowed: maxAllowed
+                    }
+                }
+            });
+        }
+        
+        // Create a new assignment for this label column
+        const newAssignment = await createLabelAssignmentForColumn(studentId, datasetId, labelColumnId);
+        
+        if (newAssignment) {
+            console.log('New assignment created with displayColumn:', newAssignment.displayColumn);
+            res.json({
+                success: true,
+                hasAssignment: true,
+                assignment: newAssignment
+            });
+        } else {
+            res.json({
+                success: true,
+                hasAssignment: false,
+                message: 'No pending rows available for this label column.'
+            });
+        }
+        
+    } catch (error) {
+        console.error('Error getting label assignment:', error);
+        res.status(500).json({ success: false, error: 'Failed to get assignment' });
+    }
+});
+
+// Helper: Create assignment for a specific label column
+// In server.js - Update createLabelAssignmentForColumn
+
+async function createLabelAssignmentForColumn(studentId, datasetId, labelColumnId) {
+    const connection = await db.getConnection();
+    
+    try {
+        await connection.beginTransaction();
+        
+        // Check student's limit
+        const limitCheck = await checkStudentDatasetLimit(studentId, datasetId);
+        if (!limitCheck.canAnnotate) {
+            return null;
+        }
+        
+        // Get label column info - INCLUDE display_column
+        const [labelColumns] = await connection.execute(`
+            SELECT * FROM DatasetLabelColumn 
+            WHERE label_column_id = ? AND is_active = TRUE
+        `, [labelColumnId]);
+        
+        if (labelColumns.length === 0) return null;
+        
+        const labelCol = labelColumns[0];
+        
+        // Get CSV file info
+        const [dataset] = await connection.execute(
+            'SELECT file_name, title, description, max_annotation FROM Dataset WHERE dataset_id = ?',
+            [datasetId]
+        );
+        
+        if (dataset.length === 0) return null;
+        
+        // Parse CSV
+        const filePath = path.join(__dirname, '../uploads/datasets', dataset[0].file_name);
+        const rows = await parseCSVToRows(filePath);
+        
+        // Find rows that need annotations for this label column
+        const availableRows = [];
+        
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            // Check if this row already has enough consensus
+            const [consensus] = await connection.execute(
+                'SELECT contribution_count, is_resolved FROM LabelConsensus WHERE dataset_id = ? AND label_column_id = ? AND row_index = ?',
+                [datasetId, labelColumnId, rowIndex]
+            );
+            
+            const needsMoreContributions = consensus.length === 0 || 
+                (!consensus[0].is_resolved && consensus[0].contribution_count < 3);
+            
+            if (needsMoreContributions) {
+                // Check if student already assigned to this cell
+                const [existing] = await connection.execute(
+                    'SELECT * FROM StudentLabelAssignment WHERE dataset_id = ? AND label_column_id = ? AND row_index = ? AND student_id = ?',
+                    [datasetId, labelColumnId, rowIndex, studentId]
+                );
+                
+                if (existing.length === 0) {
+                    const rowData = rows[rowIndex];
+                    const displayColumn = labelCol.display_column || labelCol.column_name;
+                    
+                    // Build filtered row data - include display column
+                    const filteredRowData = {};
+                    
+                    // Add the display column value
+                    if (rowData[displayColumn] !== undefined && rowData[displayColumn] !== '') {
+                        filteredRowData[displayColumn] = rowData[displayColumn];
+                    } else {
+                        const firstCol = Object.keys(rowData)[0];
+                        if (firstCol) {
+                            filteredRowData[firstCol] = rowData[firstCol] || 'No data';
+                        } else {
+                            filteredRowData['value'] = 'No data available';
+                        }
+                    }
+                    
+                    // Add the current value of the label column for context
+                    if (rowData[labelCol.column_name] !== undefined) {
+                        filteredRowData['current_' + labelCol.column_name] = rowData[labelCol.column_name];
+                    }
+                    
+                    availableRows.push({
+                        rowIndex: rowIndex,
+                        rowData: filteredRowData,
+                        displayColumn: displayColumn
+                    });
+                }
+            }
+        }
+        
+        if (availableRows.length === 0) {
+            await connection.commit();
+            return null;
+        }
+        
+        // Select random row
+        const randomIndex = Math.floor(Math.random() * availableRows.length);
+        const selected = availableRows[randomIndex];
+        
+        // Create assignment
+        const [result] = await connection.execute(`
+            INSERT INTO StudentLabelAssignment 
+            (dataset_id, label_column_id, student_id, row_index, row_data)
+            VALUES (?, ?, ?, ?, ?)
+        `, [datasetId, labelColumnId, studentId, selected.rowIndex, JSON.stringify(selected.rowData)]);
+        
+        // Get updated count for limit info
+        const [counts] = await connection.execute(
+            `SELECT annotation_count FROM StudentLabelCount 
+             WHERE dataset_id = ? AND student_id = ?`,
+            [datasetId, studentId]
+        );
+        const currentCount = counts.length > 0 ? counts[0].annotation_count : 0;
+        const maxAllowed = dataset[0].max_annotation || 5;
+        
+        await connection.commit();
+        
+        
+        return {
+            id: result.insertId,
+            datasetId: datasetId,
+            datasetTitle: dataset[0].title,
+            datasetDescription: dataset[0].description,
+            columnName: labelCol.column_name,
+            displayColumn: selected.displayColumn, 
+            labelDescription: labelCol.description || `Please label the ${labelCol.column_name} column`,
+            rowIndex: selected.rowIndex,
+            rowData: selected.rowData,
+            possibleValues: JSON.parse(labelCol.possible_values || '[]'),
+            limitInfo: {
+                remaining: maxAllowed - (currentCount + 1),
+                totalUsed: currentCount + 1,
+                maxAllowed: maxAllowed
+            }
+        };
+        
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+}
+
+// Student: Submit annotation (selected value)
+app.post('/api/student/submit-annotation', async (req, res) => {
+    const connection = await db.getConnection();
+    
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        
+        const { assignmentId, selectedValue } = req.body;
+        
+        if (!selectedValue) {
+            return res.status(400).json({ success: false, error: 'Please select a value' });
+        }
+        
+        await connection.beginTransaction();
+        
+        // Get assignment details
+        const [assignments] = await connection.execute(`
+            SELECT sla.*, dlc.column_name, dlc.label_column_id, d.file_name, d.dataset_id, d.max_annotation
+            FROM StudentLabelAssignment sla
+            JOIN DatasetLabelColumn dlc ON sla.label_column_id = dlc.label_column_id
+            JOIN Dataset d ON sla.dataset_id = d.dataset_id
+            WHERE sla.assignment_id = ? AND sla.student_id = ?
+        `, [assignmentId, req.session.userId]);
+        
+        if (assignments.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, error: 'Assignment not found' });
+        }
+        
+        const assignment = assignments[0];
+        
+        // Update assignment
+        await connection.execute(`
+            UPDATE StudentLabelAssignment 
+            SET selected_value = ?, status = 'submitted', submitted_at = NOW()
+            WHERE assignment_id = ?
+        `, [selectedValue, assignmentId]);
+        
+        // Update student's annotation count
+        await connection.execute(`
+            INSERT INTO StudentLabelCount (dataset_id, student_id, annotation_count)
+            VALUES (?, ?, 1)
+            ON DUPLICATE KEY UPDATE annotation_count = annotation_count + 1
+        `, [assignment.dataset_id, req.session.userId]);
+        
+        // Check if we have enough contributions for consensus
+        const [contributions] = await connection.execute(`
+            SELECT selected_value, COUNT(*) as count
+            FROM StudentLabelAssignment
+            WHERE dataset_id = ? AND label_column_id = ? AND row_index = ? AND status = 'submitted'
+            GROUP BY selected_value
+        `, [assignment.dataset_id, assignment.label_column_id, assignment.row_index]);
+        
+        const totalContributions = contributions.reduce((sum, c) => sum + c.count, 0);
+        
+        if (totalContributions >= 3) {
+            let consensusValue = null;
+            let maxCount = 0;
+            for (const contrib of contributions) {
+                if (contrib.count > maxCount) {
+                    maxCount = contrib.count;
+                    consensusValue = contrib.selected_value;
+                }
+            }
+            
+            const filePath = path.join(__dirname, '../uploads/datasets', assignment.file_name);
+            let fileContent = await fs.readFile(filePath, 'utf-8');
+            const lines = fileContent.split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/["']/g, ''));
+            
+            const columnIndex = headers.findIndex(h => h === assignment.column_name);
+            
+            if (columnIndex !== -1) {
+                const rowValues = lines[assignment.row_index + 1].split(',');
+                rowValues[columnIndex] = `"${consensusValue}"`;
+                lines[assignment.row_index + 1] = rowValues.join(',');
+                await fs.writeFile(filePath, lines.join('\n'), 'utf-8');
+            }
+            
+            await connection.execute(`
+                INSERT INTO LabelConsensus 
+                (dataset_id, label_column_id, row_index, consensus_value, contribution_count, is_resolved, resolved_at)
+                VALUES (?, ?, ?, ?, ?, TRUE, NOW())
+                ON DUPLICATE KEY UPDATE
+                consensus_value = VALUES(consensus_value),
+                is_resolved = TRUE,
+                resolved_at = NOW()
+            `, [assignment.dataset_id, assignment.label_column_id, assignment.row_index, consensusValue, totalContributions]);
+        }
+        
+        // Get updated count for limit info - THIS IS THE CURRENT COUNT AFTER INCREMENT
+        const [counts] = await connection.execute(
+            'SELECT annotation_count FROM StudentLabelCount WHERE dataset_id = ? AND student_id = ?',
+            [assignment.dataset_id, req.session.userId]
+        );
+        const currentCount = counts.length > 0 ? counts[0].annotation_count : 0;
+        const maxAllowed = assignment.max_annotation || 5;
+        
+        // Commit the transaction before getting next assignment
+        await connection.commit();
+        
+        // Get next assignment WITHOUT incrementing the count again
+        let nextAssignment = null;
+        if (currentCount < maxAllowed) {
+            const newAssignment = await createLabelAssignment(req.session.userId);
+            if (newAssignment && newAssignment.datasetId === assignment.dataset_id) {
+                // Use the SAME limitInfo - don't increment again
+                newAssignment.limitInfo = {
+                    remaining: maxAllowed - currentCount,
+                    totalUsed: currentCount,
+                    maxAllowed: maxAllowed
+                };
+                nextAssignment = newAssignment;
+            }
+        }
+        
+        // Return the response with the correct count
+        res.json({
+            success: true,
+            message: 'Annotation submitted successfully!',
+            nextAssignment: nextAssignment,
+            limitInfo: {
+                remaining: maxAllowed - currentCount,
+                totalUsed: currentCount,
+                maxAllowed: maxAllowed
+            }
+        });
+        
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error submitting annotation:', error);
+        res.status(500).json({ success: false, error: 'Failed to submit annotation' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Get all label annotations for a dataset (Admin view)
+app.get('/api/datasets/:id/label-annotations', async (req, res) => {
+    try {
+        if (!req.session || !req.session.userId) {
+            return res.status(401).json({ success: false, error: 'Not authenticated' });
+        }
+        
+        const datasetId = req.params.id;
+        
+        const [users] = await db.execute('SELECT role FROM User WHERE user_id = ?', [req.session.userId]);
+        const isAdmin = users[0]?.role === 'admin';
+        
+        let query = `
+            SELECT 
+                sla.*,
+                u.name as student_name,
+                u.email as student_email,
+                dlc.column_name,
+                dlc.description as label_description
+            FROM StudentLabelAssignment sla
+            JOIN User u ON sla.student_id = u.user_id
+            JOIN DatasetLabelColumn dlc ON sla.label_column_id = dlc.label_column_id
+            WHERE sla.dataset_id = ?
+        `;
+        
+        if (!isAdmin) {
+            query += ` AND sla.student_id = ?`;
+            const [annotations] = await db.execute(query, [datasetId, req.session.userId]);
+            return res.json({ success: true, annotations, isAdmin: false });
+        }
+        
+        const [annotations] = await db.execute(query, [datasetId]);
+        res.json({ success: true, annotations, isAdmin: true });
+        
+    } catch (error) {
+        console.error('Error fetching label annotations:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch annotations' });
+    }
+});
+
+// Get label consensus results
+app.get('/api/datasets/:id/label-consensus', async (req, res) => {
+    try {
+        const datasetId = req.params.id;
+        
+        const [consensus] = await db.execute(`
+            SELECT 
+                lc.*,
+                dlc.column_name
+            FROM LabelConsensus lc
+            JOIN DatasetLabelColumn dlc ON lc.label_column_id = dlc.label_column_id
+            WHERE lc.dataset_id = ?
+            ORDER BY lc.row_index ASC
+        `, [datasetId]);
+        
+        res.json({ success: true, consensus });
+        
+    } catch (error) {
+        console.error('Error fetching consensus:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch consensus' });
     }
 });
 
@@ -1836,6 +2973,24 @@ app.get('/api/datasets/:id/consensus', async (req, res) => {
     } catch (error) {
         console.error('Error fetching consensus:', error);
         res.status(500).json({ success: false, error: 'Failed to fetch consensus' });
+    }
+});
+
+app.get('/api/leaderboard', async (req,res) => {
+    try {
+        const [leaderboard] = await db.execute(`
+                SELECT sca.student_id, u.name, COUNT(*) annotation_count 
+                FROM StudentLabelAssignment sca
+                JOIN USER u ON sca.student_id = u.user_id
+                WHERE sca.status = 'submitted'
+                GROUP BY sca.student_id
+                ORDER BY annotation_count DESC
+            `)
+
+            res.json({ success: true, leaderboard });
+
+    } catch (error) {
+        res.status(500).json({success: false, error: 'Failed calculating leaderboard'});
     }
 });
 

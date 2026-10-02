@@ -1,11 +1,15 @@
+DROP SCHEMA IF EXISTS AH_Crowdsource_DB;
 CREATE SCHEMA IF NOT EXISTS AH_Crowdsource_DB;
 USE AH_Crowdsource_DB;
 
+SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS User;
 DROP TABLE IF EXISTS Dataset;
 DROP TABLE IF EXISTS DatasetAnnotation;
 DROP TABLE IF EXISTS DataPointAnnotation;
 DROP TABLE IF EXISTS AnnotationVote;
+
+SET FOREIGN_KEY_CHECKS = 0;
 
 CREATE TABLE IF NOT EXISTS User(
 	user_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -84,6 +88,52 @@ CREATE TABLE IF NOT EXISTS AnnotationVote (
     INDEX idx_annotation (annotation_id)
 );
 
+CREATE TABLE IF NOT EXISTS DatasetLabelColumn (
+    label_column_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    column_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    possible_values TEXT, -- JSON array of possible values for dropdown
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    display_column VARCHAR(255) NULL,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    UNIQUE KEY unique_dataset_column (dataset_id, column_name)
+);
+
+CREATE TABLE IF NOT EXISTS StudentLabelAssignment (
+    assignment_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    label_column_id INT NOT NULL,
+    student_id INT NOT NULL,
+    row_index INT NOT NULL,
+    row_data TEXT, -- JSON of the row data for context
+    selected_value VARCHAR(500),
+    status ENUM('pending', 'submitted') DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    submitted_at TIMESTAMP NULL,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    FOREIGN KEY (label_column_id) REFERENCES DatasetLabelColumn(label_column_id) ON DELETE CASCADE,
+    FOREIGN KEY (student_id) REFERENCES User(user_id) ON DELETE CASCADE,
+    INDEX idx_student (student_id),
+    INDEX idx_row (row_index),
+    UNIQUE KEY unique_assignment (dataset_id, label_column_id, student_id, row_index)
+);
+
+-- Label consensus table
+CREATE TABLE IF NOT EXISTS LabelConsensus (
+    consensus_id INT PRIMARY KEY AUTO_INCREMENT,
+    dataset_id INT NOT NULL,
+    label_column_id INT NOT NULL,
+    row_index INT NOT NULL,
+    consensus_value VARCHAR(500),
+    contribution_count INT DEFAULT 0,
+    is_resolved BOOLEAN DEFAULT FALSE,
+    resolved_at TIMESTAMP NULL,
+    FOREIGN KEY (dataset_id) REFERENCES Dataset(dataset_id) ON DELETE CASCADE,
+    FOREIGN KEY (label_column_id) REFERENCES DatasetLabelColumn(label_column_id) ON DELETE CASCADE,
+    UNIQUE KEY unique_cell (dataset_id, label_column_id, row_index)
+);
 
 
 CREATE TABLE IF NOT EXISTS DatasetColumnTask (
@@ -133,7 +183,7 @@ CREATE TABLE IF NOT EXISTS CellConsensus (
     UNIQUE KEY unique_cell (dataset_id, task_id, row_index)
 );
 
-CREATE TABLE IF NOT EXISTS StudentDatasetAnnotationCount (
+CREATE TABLE IF NOT EXISTS StudentLabelCount (
     count_id INT PRIMARY KEY AUTO_INCREMENT,
     dataset_id INT NOT NULL,
     student_id INT NOT NULL,
@@ -150,4 +200,11 @@ CREATE TABLE IF NOT EXISTS StudentDatasetAnnotationCount (
 UPDATE User SET role = 'student' WHERE user_id = 1;
 UPDATE User SET role = 'admin' WHERE user_id = 1;
 
-SELECT * From User;
+SELECT * From StudentLabelAssignment;
+
+SELECT sca.student_id, u.name, COUNT(*) annotation_count 
+FROM StudentCellAssignment sca
+JOIN USER u ON sca.student_id = u.user_id
+WHERE sca.status = 'submitted'
+GROUP BY sca.student_id
+ORDER BY annotation_count DESC;
